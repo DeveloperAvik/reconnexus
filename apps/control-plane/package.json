@@ -1,0 +1,17 @@
+{
+  "name": "@reconnexus/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "dependencies": {
+    "@reconnexus/contracts": "0.1.0",
+    "@reconnexus/configuration": "0.1.0",
+    "@reconnexus/logging": "0.1.0",
+    "@reconnexus/normalization": "0.1.0",
+    "@reconnexus/scope-policy": "0.1.0",
+    "pg": "^8.13.1"
+  }
+}

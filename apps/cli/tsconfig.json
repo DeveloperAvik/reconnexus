@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "./dist", "rootDir": "./src" },
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/configuration" },
+    { "path": "../../packages/normalization" },
+    { "path": "../../packages/logging" },
+    { "path": "../../packages/scope-policy" },
+    { "path": "../../apps/control-plane" }
+  ]
+}

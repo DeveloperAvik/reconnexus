@@ -1,0 +1,40 @@
+{
+  "name": "reconnexus",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ReconNexus — CLI reconnaissance and web/API attack-surface intelligence platform",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "bin": {
+    "reconnexus": "./apps/cli/bin/reconnexus.mjs"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "typecheck": "tsc -b tsconfig.build.json --force",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "conformance": "vitest run test/conformance",
+    "test:go": "cd workers && go test ./...",
+    "lint": "tsc -b tsconfig.build.json --force",
+    "rn": "tsx apps/cli/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "pg": "^8.13.1",
+    "tldts": "^7.0.0",
+    "zod": "^3.24.1"
+  }
+}

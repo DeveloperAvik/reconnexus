@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "policyId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "projectId": "3f2504e0-4f89-41d3-9a0c-0305e82c3302",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "AUTH-2026-001",
+    "authorizedBy": "security-team",
+    "validFrom": "2020-01-01T00:00:00.000Z",
+    "validUntil": "2999-01-01T00:00:00.000Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "example.com",
+        "includeSubdomains": true
+      },
+      {
+        "value": "example.org",
+        "includeSubdomains": false
+      }
+    ],
+    "hosts": [
+      "api.example.com"
+    ],
+    "ips": [
+      "203.0.113.10"
+    ],
+    "cidrs": [
+      "198.51.100.0/24"
+    ]
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [
+      "admin.example.com",
+      "internal.example.com"
+    ],
+    "ips": [],
+    "cidrs": [],
+    "paths": [
+      "/logout",
+      "/admin/danger"
+    ]
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

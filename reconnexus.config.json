@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "defaultPolicyFile": "./policies/tesla.com.json",
+  "logging": {
+    "level": "info",
+    "format": "pretty"
+  }
+}

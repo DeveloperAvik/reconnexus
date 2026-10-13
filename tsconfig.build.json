@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/normalization" },
+    { "path": "./packages/logging" },
+    { "path": "./packages/configuration" },
+    { "path": "./packages/scope-policy" },
+    { "path": "./packages/evidence-contracts" },
+    { "path": "./apps/control-plane" },
+    { "path": "./apps/cli" }
+  ]
+}

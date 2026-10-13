@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "policyId": "14f59929-5e58-48f3-bee4-ddd3e7a44bc9",
+  "projectId": "059057d1-41d6-4f46-9775-94c34da6fee3",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "AUTH-123",
+    "authorizedBy": "Your Name",
+    "validFrom": "2026-10-13T18:45:57.800Z",
+    "validUntil": "2027-01-11T18:45:57.800Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "tesla.com",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}
