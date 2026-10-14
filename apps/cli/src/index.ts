@@ -106,6 +106,7 @@ function buildProgram(): Command {
         "  reconnexus scan start https://example.com/ --run             authorize and run a scan",
         "  reconnexus scan list                                         list recent scans",
         "  reconnexus report <scanId>                                   redacted evidence report",
+        "  reconnexus report <scanId> --format html --out report.html   shareable HTML report",
         "",
         "Authorized use only. A scan refuses targets outside the supplied scope policy.",
       ].join("\n"),
@@ -450,10 +451,18 @@ function buildProgram(): Command {
   // Stage 12 reporting
   program
     .command("report <scanId>")
-    .description("generate a redacted, evidence-backed report (human/json/jsonl/csv)")
-    .addOption(new Option("--format <format>", "output format").choices(["human", "json", "jsonl", "csv"]))
+    .description("generate a redacted, evidence-backed report (human/json/jsonl/csv/html)")
+    .addOption(new Option("--format <format>", "output format").choices(["human", "json", "jsonl", "csv", "html"]))
+    .option("--out <path>", "write the report to a file instead of stdout")
+    .option("--max-rows <n>", "maximum rows per inventory section (totals stay exact)", (v: string) => Number(v))
     .action((id: string, opts) =>
-      run("report", program, (ctx) => reportCommand(ctx, id, { ...(opts.format ? { format: opts.format } : {}) })),
+      run("report", program, (ctx) =>
+        reportCommand(ctx, id, {
+          ...(opts.format ? { format: opts.format } : {}),
+          ...(opts.out ? { out: opts.out } : {}),
+          ...(opts.maxRows !== undefined ? { maxRows: opts.maxRows } : {}),
+        }),
+      ),
     );
 
   // Not-yet-implemented groups

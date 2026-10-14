@@ -8,6 +8,7 @@ import {
   statusLabel,
   statusSymbol,
   table,
+  truncateVisible,
   visibleWidth,
 } from "../../apps/cli/src/output.js";
 
@@ -43,6 +44,24 @@ describe("CLI output helpers", () => {
       // The padded cell occupies 5 visible columns even though the string is longer.
       expect(visibleWidth(padVisible(painted, 5))).toBe(5);
       expect(padVisible(painted, 5, "right").startsWith("   ")).toBe(true);
+    } finally {
+      setColorEnabled(false);
+    }
+  });
+
+  it("truncates by visible width without splitting a colour escape", () => {
+    setColorEnabled(true);
+    try {
+      const painted = color.green("subdomain-discovery") + color.dim(" · ") + color.cyan("running");
+      const cut = truncateVisible(painted, 12);
+      // Exactly the requested number of visible columns, one of which is the ellipsis.
+      expect(visibleWidth(cut)).toBe(12);
+      // No half-written escape survived, and the colour is reset so it cannot bleed.
+      expect(cut).not.toMatch(/\u001b\[[0-9;]*$/);
+      expect(cut.endsWith("\u001b[0m")).toBe(true);
+      // A string that fits is returned untouched, escapes and all.
+      expect(truncateVisible(painted, 200)).toBe(painted);
+      expect(truncateVisible("plain", 0)).toBe("");
     } finally {
       setColorEnabled(false);
     }

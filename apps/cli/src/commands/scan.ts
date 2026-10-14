@@ -16,6 +16,7 @@ import {
 } from "@reconnexus/control-plane";
 import type { Context } from "../context.js";
 import { CliError } from "../errors.js";
+import { LiveRenderer, stageParts } from "../render/live.js";
 import {
   color,
   formatCount,
@@ -119,7 +120,7 @@ function buildOrchestrator(
   db: ReturnType<typeof createDb>,
   opts: ScanRunOptions,
   signal?: AbortSignal,
-  progress?: ProgressRenderer,
+  progress?: LiveRenderer,
 ): ScanOrchestrator {
   // While progress is rendered, the per-provider info lines would repeat it less legibly, and a
   // log line written straight to stderr would land on top of the line being drawn. Warnings and
@@ -127,7 +128,7 @@ function buildOrchestrator(
   const logger = progress
     ? ctx.logger.derive({ sink: progress.logSink, ...(ctx.logger.currentLevel === "info" ? { level: "warn" as const } : {}) })
     : ctx.logger;
-  const onEvent = progress?.onEvent;
+  const onEvent = progress ? (e: OrchestratorEvent): void => progress.onEvent(e) : undefined;
   const cmd = resolveWorkerCommand(ctx.config.worker, process.cwd());
   const runner: DiscoveryRunner = new GoWorkerRunner(cmd);
   const store = new LocalArtifactStore(ctx.config.artifacts.root);
@@ -156,94 +157,6 @@ function buildOrchestrator(
 
 function splitList(s: string): string[] {
   return s.split(",").map((x) => x.trim()).filter(Boolean);
-}
-
-/** Stage ids are `NN-some-name`; split them so the number and the name can be columns. */
-function stageParts(stage: string): { index: string; name: string } {
-  const m = /^(\d+)-(.*)$/.exec(stage);
-  if (!m) return { index: "  ", name: stage };
-  return { index: m[1]!, name: m[2]!.replace(/-/g, " ") };
-}
-
-const STAGE_NAME_WIDTH = 22;
-
-interface ProgressRenderer {
-  onEvent: (e: OrchestratorEvent) => void;
-  /** Log sink that clears any line being drawn first, so the two never interleave. */
-  logSink: (line: string) => void;
-}
-
-/**
- * Renders live progress to stderr in human mode. One line per stage as it finishes, with the
- * providers that ran and what each returned; on a terminal the stage currently running is shown
- * on a transient line that the result then overwrites. Returns nothing in `--json` mode or when
- * the log level says the operator wants quiet.
- */
-function progressPrinter(ctx: Context): ProgressRenderer | undefined {
-  if (ctx.json || ctx.config.logging.level === "error") return undefined;
-  const tty = process.stderr.isTTY === true;
-  const write = (s: string): void => void process.stderr.write(s);
-  const clearLine = (): void => {
-    if (tty) write("\r\u001b[2K");
-  };
-  const providers = new Map<string, string[]>();
-
-  const onEvent = (e: OrchestratorEvent): void => {
-    switch (e.type) {
-      case "scan-start": {
-        write(`\n${color.bold("ReconNexus")} ${color.dim("·")} ${color.bold(e.rootDomain)} ${color.dim("·")} ${color.dim(e.scanId)}\n`);
-        write(`${color.dim(`${e.stages} stages`)}\n\n`);
-        return;
-      }
-      case "stage-start": {
-        const { index, name } = stageParts(e.stage);
-        providers.delete(e.stage);
-        if (tty) write(`  ${color.cyan("•")} ${color.dim(index)} ${name}${color.dim(" …")}`);
-        return;
-      }
-      case "provider-end": {
-        const list = providers.get(e.stage) ?? [];
-        const count = e.status === "SKIPPED" || e.status === "BLOCKED" ? "" : ` ${color.dim(formatCount(e.records))}`;
-        const mark = e.status === "SUCCEEDED" ? "" : ` ${color.dim(`(${e.status.toLowerCase()})`)}`;
-        list.push(`${e.provider}${count}${mark}`);
-        providers.set(e.stage, list);
-        if (tty) {
-          const { index, name } = stageParts(e.stage);
-          clearLine();
-          write(`  ${color.cyan("•")} ${color.dim(index)} ${name}${color.dim(" … " + e.provider)}`);
-        }
-        return;
-      }
-      case "stage-end": {
-        clearLine();
-        const { index, name } = stageParts(e.stage);
-        const cells = [
-          `  ${statusSymbol(e.status)}`,
-          color.dim(index),
-          padVisible(name, STAGE_NAME_WIDTH),
-          padVisible(e.durationMs > 0 ? color.dim(formatDuration(e.durationMs)) : "", 8, "right"),
-        ];
-        const detail = providers.get(e.stage);
-        if (detail?.length) cells.push(color.dim("·") + " " + detail.join(color.dim(" · ")));
-        else if (e.reason) cells.push(color.dim("· " + e.reason));
-        write(`${cells.join(" ")}\n`);
-        return;
-      }
-      case "scan-end": {
-        // The verdict belongs to the summary on stdout; keep the live stream free of duplicates.
-        write("\n");
-        return;
-      }
-    }
-  };
-
-  return {
-    onEvent,
-    logSink: (line) => {
-      clearLine();
-      write(`  ${line}\n`);
-    },
-  };
 }
 
 /**
@@ -277,7 +190,8 @@ function renderRunSummary(summary: ScanRunSummary, showedProgress: boolean): str
           const detail = s.providers.length
             ? s.providers.map((p) => `${p.provider} ${color.dim(formatCount(p.records))}${p.outcome === "SUCCEEDED" ? "" : color.dim(` (${p.outcome.toLowerCase()})`)}`).join(color.dim(" · "))
             : color.dim(s.reason ?? "");
-          return [`  ${statusSymbol(s.status)}`, color.dim(index), name, detail];
+          const dur = s.durationMs === undefined ? "" : color.dim(formatDuration(s.durationMs));
+          return [`  ${statusSymbol(s.status)}`, color.dim(index), name, dur, detail];
         }),
       ),
     );
@@ -300,9 +214,22 @@ function renderRunSummary(summary: ScanRunSummary, showedProgress: boolean): str
     );
   }
 
+  lines.push("", heading("outputs"));
+  lines.push(
+    ...table(
+      [
+        [color.dim("assessment"), summary.scanId],
+        [color.dim("evidence"), summary.artifactsRoot],
+        [color.dim("records"), `postgres · scan_runs/jobs/coverage_records/observations (scan ${summary.scanId})`],
+      ],
+      ["left", "left"],
+    ).map((l) => `  ${l}`),
+  );
+
   const next: string[][] = [];
   if (incomplete.length > 0) next.push([color.dim("coverage"), `reconnexus coverage ${summary.scanId}`]);
   next.push([color.dim("report"), `reconnexus report ${summary.scanId}`]);
+  next.push([color.dim("html"), `reconnexus report ${summary.scanId} --format html --out ${summary.scanId}.html`]);
   lines.push("", ...table(next).map((l) => `  ${l}`));
   return lines.join("\n");
 }
@@ -316,19 +243,33 @@ function formatTimestamp(at: Date | string): string {
   return new Date(at).toISOString().slice(0, 16).replace("T", " ");
 }
 
+/**
+ * Build the live console for this run, or nothing when the operator wants the terminal quiet
+ * (`--json`, or a log level that says errors only). On a TTY it draws a frame; otherwise it emits
+ * timestamped structured event lines, so a captured log stays readable and greppable.
+ */
+function liveConsole(ctx: Context): LiveRenderer | undefined {
+  if (ctx.json || ctx.config.logging.level === "error") return undefined;
+  return new LiveRenderer({ tty: process.stderr.isTTY === true });
+}
+
 async function runOrResume(ctx: Context, scanId: string, opts: ScanRunOptions): Promise<CommandResult<unknown>> {
   const db = createDb(ctx.config.database);
   const controller = new AbortController();
+  const progress = liveConsole(ctx);
+  const showedProgress = progress !== undefined;
+  // SIGINT asks the orchestrator to stop at the next checkpoint: in-flight work is persisted and
+  // the remaining stages are recorded CANCELLED, rather than the process dying mid-write.
   const onSigint = (): void => {
-    process.stderr.write(`\n${color.yellow("cancelling…")}\n`);
+    if (progress) progress.cancelling();
+    else process.stderr.write(`\n${color.yellow("cancelling…")}\n`);
     controller.abort();
   };
   process.once("SIGINT", onSigint);
   try {
-    const progress = progressPrinter(ctx);
-    const showedProgress = progress !== undefined;
     const orchestrator = buildOrchestrator(ctx, db, opts, controller.signal, progress);
     const summary = await orchestrator.runScan(scanId);
+    progress?.stop();
     const exitCode =
       summary.status === "SUCCEEDED" ? ExitCode.SUCCESS : summary.status === "PARTIAL" ? ExitCode.PARTIAL : summary.status === "CANCELLED" ? ExitCode.CANCELLED : ExitCode.GENERAL_ERROR;
     return result({
@@ -338,6 +279,8 @@ async function runOrResume(ctx: Context, scanId: string, opts: ScanRunOptions): 
       render: () => renderRunSummary(summary, showedProgress),
     });
   } finally {
+    // The frame must be released even when the run threw, or the error would be drawn over.
+    progress?.stop();
     process.removeListener("SIGINT", onSigint);
     await db.close();
   }

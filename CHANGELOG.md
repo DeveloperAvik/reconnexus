@@ -3,6 +3,61 @@
 All notable changes are documented here. This project distinguishes implemented functionality from
 planned functionality; entries only describe what is actually implemented and tested.
 
+
+## [0.14.0] — Professional CLI console and HTML reporting
+
+### Added
+
+- **Live assessment console.** `scan run`/`scan start --run` now draw a per-stage console on stderr
+  (`apps/cli/src/render/live.ts`): a header (target, status, scan id, profile, elapsed, stages
+  finished/planned), one row per stage (status, duration, retries, per-provider records), a record
+  counter by type, and recent notices. It consumes the orchestrator's real event stream — no number
+  is invented: an unmeasured stage shows `pending`/`—`, never `0`, and there is no fake overall
+  percentage (only "stages finished / stages planned"). On a non-TTY (or `--json`) it degrades to
+  timestamped one-line structured events; the frame is redrawn on a timer the caller owns, so a slow
+  terminal can never delay a stage.
+- **Self-contained `html` report format.** `reconnexus report <scanId> --format html`, rendered from
+  the same canonical redacted model as `human`/`json`/`jsonl`/`csv` (`apps/control-plane/src/reporting/`).
+  Single file, inline CSS, no scripts, no external references (no `<link>`, `@import`, `src` or remote
+  `url()`); responsive and print-friendly. Every interpolated value goes through `esc()`, so a
+  hostile hostname/title/evidence fragment renders as text, not markup; the only `href`s are
+  in-document anchors. Redaction is applied upstream and fails closed, so the HTML cannot re-introduce
+  a secret.
+- **`report --out <path>`** writes any format to a file (mode `0600`) instead of stdout, and
+  **`--max-rows <n>`** bounds rows per inventory section while totals stay exact.
+
+### Fixed
+
+- **Provider-execution persistence (High):** `recordProviderExecution` reused the Postgres parameter
+  `$16` both as the integer `duration_ms` column and inside a text concatenation
+  (`$16 || ' milliseconds'`), so Postgres rejected the insert with *"inconsistent types deduced for
+  parameter $16"*. Every DB-backed stage failed to persist provider executions, which failed the
+  orchestration, reporting and per-stage integration suites. The interval expression now uses its own
+  parameter.
+- **Console truncation (Low):** the live frame truncated rows by raw string length, which could cut an
+  ANSI escape sequence in half and garble the terminal. Added `truncateVisible` (visible-width aware,
+  copies escapes whole, closes colour with a reset) and used it for every truncated frame line.
+- **Subdomain-takeover record contract (High):** the Go worker serialized `TAKEOVER_CANDIDATE`
+  records nested under a `takeover` object, while the TypeScript contract and the ingest path expect
+  the takeover fields flat on the record. Every stage-13 run failed with *"worker output failed
+  schema validation"* and the whole stage was recorded `FAILED`. `flatPayloads()` now flattens the
+  takeover payload like the other stage payloads. The drift was invisible because `SampleRecords()`
+  omitted the takeover record, so the cross-language record-shape check never saw it — the sample was
+  added, which is what now guards this shape.
+
+### Tests
+
+- TypeScript: 197 tests across 41 files (adds HTML-report safety suite — escaping, no `<script>`/
+  event handlers, `javascript:` rendered as text, self-containment, redaction fail-through — and a
+  `truncateVisible` escape-safety test).
+- Go: the record-shape conformance sample set now includes `TAKEOVER_CANDIDATE`, so a future Go↔TS
+  field drift in the takeover record fails conformance instead of a live scan.
+
+### Docs
+
+- `README.md` and `docs/architecture/reporting.md` updated: HTML export and the live console are now
+  documented as implemented.
+
 ## [0.13.0] — Subdomain-takeover detection (new stage 13)
 
 ### Added

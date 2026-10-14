@@ -253,7 +253,7 @@ export class Repository {
     return res.rows.map((r) => r.host);
   }
 
-  async listTechnologyObservations(scanId: string): Promise<Array<{ name: string; host: string; category: string; evidence_type: string; evidence: string; confidence: number }>> {
+  async listTechnologyObservations(scanId: string, limit = 20000): Promise<Array<{ name: string; host: string; category: string; evidence_type: string; evidence: string; confidence: number }>> {
     const res = await this.db.query(
       `SELECT a.value AS name,
               COALESCE(o.data->>'host','') AS host,
@@ -264,13 +264,14 @@ export class Repository {
          FROM observations o
          JOIN assets a ON a.id = o.asset_id
         WHERE o.scan_id = $1 AND o.kind = 'technology'
-        ORDER BY name, host`,
-      [scanId],
+        ORDER BY name, host
+        LIMIT $2`,
+      [scanId, limit],
     );
     return res.rows as never;
   }
 
-  async listHttpObservations(scanId: string): Promise<Array<{ url: string; host: string; status_code: number | null; title: string; server: string; probe_status: string; final_url: string; data: unknown }>> {
+  async listHttpObservations(scanId: string, limit = 20000): Promise<Array<{ url: string; host: string; status_code: number | null; title: string; server: string; probe_status: string; final_url: string; data: unknown }>> {
     const res = await this.db.query(
       `SELECT COALESCE(o.data->>'url','') AS url,
               COALESCE(o.data->>'finalUrl','') AS final_url,
@@ -281,8 +282,9 @@ export class Repository {
               o.data AS data
          FROM observations o
         WHERE o.scan_id = $1 AND o.kind = 'http'
-        ORDER BY status_code NULLS LAST, url`,
-      [scanId],
+        ORDER BY status_code NULLS LAST, url
+        LIMIT $2`,
+      [scanId, limit],
     );
     return res.rows as never;
   }
@@ -310,13 +312,14 @@ export class Repository {
     return res.rows as never;
   }
 
-  async listApiSpecs(scanId: string): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+  async listApiSpecs(scanId: string, limit = 5000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
     const res = await this.db.query(
       `SELECT a.value AS url, o.data AS data
          FROM observations o JOIN assets a ON a.id = o.asset_id
         WHERE o.scan_id = $1 AND o.kind = 'api-spec'
-        ORDER BY a.value`,
-      [scanId],
+        ORDER BY a.value
+        LIMIT $2`,
+      [scanId, limit],
     );
     return res.rows as never;
   }
@@ -332,13 +335,14 @@ export class Repository {
     return res.rows as never;
   }
 
-  async listSourceMaps(scanId: string): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+  async listSourceMaps(scanId: string, limit = 5000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
     const res = await this.db.query(
       `SELECT a.value AS url, o.data AS data
          FROM observations o JOIN assets a ON a.id = o.asset_id
         WHERE o.scan_id = $1 AND o.kind = 'source-map'
-        ORDER BY a.value`,
-      [scanId],
+        ORDER BY a.value
+        LIMIT $2`,
+      [scanId, limit],
     );
     return res.rows as never;
   }
@@ -507,6 +511,106 @@ export class Repository {
     );
     return res.rows as never;
   }
+
+  /**
+   * Per-invocation provider execution metrics, as persisted when the provider ran. Used by
+   * reporting for durations, timeouts and attempt counts; it is never re-derived at report time.
+   */
+  async listProviderExecutions(scanId: string): Promise<ProviderExecutionRow[]> {
+    const res = await this.db.query<ProviderExecutionRow>(
+      `SELECT COALESCE(j.stage, '') AS stage,
+              pe.provider,
+              pe.provider_version,
+              pe.status,
+              pe.duration_ms,
+              pe.records_count,
+              pe.timed_out,
+              pe.truncated,
+              pe.exit_code,
+              pe.started_at,
+              pe.finished_at
+         FROM provider_executions pe
+         LEFT JOIN jobs j ON j.id = pe.job_id
+        WHERE pe.scan_id = $1
+        ORDER BY stage, pe.provider, pe.started_at`,
+      [scanId],
+    );
+    return res.rows;
+  }
+
+  /** Content-addressed evidence artifacts collected by a scan. References only — never contents. */
+  async listEvidenceArtifacts(scanId: string, limit = 500): Promise<EvidenceArtifactRow[]> {
+    const res = await this.db.query<EvidenceArtifactRow>(
+      `SELECT sha256, storage_uri, content_type, size_bytes, redacted, created_at
+         FROM evidence_artifacts
+        WHERE scan_id = $1
+        ORDER BY sha256
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows;
+  }
+
+  async countEvidenceArtifacts(scanId: string): Promise<number> {
+    const res = await this.db.query<{ n: string }>("SELECT count(*)::text AS n FROM evidence_artifacts WHERE scan_id = $1", [scanId]);
+    return Number(res.rows[0]?.n ?? 0);
+  }
+
+  /** The workspace a project belongs to, for assessment metadata. */
+  async getWorkspaceName(projectId: string): Promise<string> {
+    const res = await this.db.query<{ name: string }>(
+      "SELECT w.name FROM projects p JOIN workspaces w ON w.id = p.workspace_id WHERE p.id = $1",
+      [projectId],
+    );
+    return res.rows[0]?.name ?? "";
+  }
+
+  /** DNS observations for a scan (`dns:A`, `dns:CNAME`, …), used for the host inventory. */
+  async listDnsObservations(scanId: string, limit = 20000): Promise<Array<{ name: string; record_type: string; value: string; status: string }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS name,
+              substring(o.kind from 5) AS record_type,
+              COALESCE(o.data->>'value','') AS value,
+              COALESCE(o.data->>'status','') AS status
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind LIKE 'dns:%'
+        ORDER BY a.value, o.kind, value
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows as never;
+  }
+
+  /**
+   * Merge a patch into a scan's `config_snapshot`. Used to record what a run actually used
+   * (provider profile, overrides) so the report describes the executed run, not the defaults.
+   */
+  async mergeScanConfigSnapshot(scanId: string, patch: Record<string, unknown>): Promise<void> {
+    await this.db.query("UPDATE scan_runs SET config_snapshot = config_snapshot || $2::jsonb WHERE id = $1", [scanId, JSON.stringify(patch)]);
+  }
+}
+
+export interface ProviderExecutionRow {
+  stage: string;
+  provider: string;
+  provider_version: string | null;
+  status: string;
+  duration_ms: number;
+  records_count: number;
+  timed_out: boolean;
+  truncated: boolean;
+  exit_code: number | null;
+  started_at: Date;
+  finished_at: Date | null;
+}
+
+export interface EvidenceArtifactRow {
+  sha256: string;
+  storage_uri: string;
+  content_type: string;
+  size_bytes: string | number;
+  redacted: boolean;
+  created_at: Date;
 }
 
 export interface JobRow {

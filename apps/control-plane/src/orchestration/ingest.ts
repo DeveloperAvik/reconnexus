@@ -97,17 +97,25 @@ export async function recordProviderExecution(
     providerVersion: string;
     result: DiscoveryResult;
     status: string;
+    /** Wall-clock duration measured by the control plane; falls back to the worker's own figure. */
+    durationMs?: number;
   },
 ): Promise<void> {
   const exec = input.result.execution;
+  // Persist the measured duration. It used to fall through to the column default, which made an
+  // unmeasured run indistinguishable from one that took no time.
+  const durationMs = Math.max(0, Math.round(input.durationMs ?? exec.durationMs ?? 0));
   // Re-redact at the persistence boundary: provider diagnostics may echo fragments of parsed
   // content (e.g. parser error messages), so never store them verbatim.
   const stderrExcerpt = redactString(input.result.diagnostics.slice(0, 10).join("\n").slice(0, 4000));
+  // `$16` (duration_ms) must have a single inferred type: the integer column and the interval
+  // expression get separate parameters so Postgres does not report an inconsistent type for $16.
   await db.query(
     `INSERT INTO provider_executions
        (scan_id, job_id, provider, provider_version, argv, exit_code, status, stdout_bytes, stderr_bytes,
-        truncated, timed_out, records_count, coverage, stderr_excerpt, error, finished_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15, now())`,
+        truncated, timed_out, records_count, coverage, stderr_excerpt, error, duration_ms, started_at, finished_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+             now() - ($17::text || ' milliseconds')::interval, now())`,
     [
       input.scanId,
       input.jobId,
@@ -124,6 +132,8 @@ export async function recordProviderExecution(
       JSON.stringify(input.result.coverage),
       stderrExcerpt,
       exec.spawnError || null,
+      durationMs,
+      String(durationMs),
     ],
   );
 }

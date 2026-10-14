@@ -172,6 +172,34 @@ export function padVisible(s: string, width: number, align: "left" | "right" = "
   return align === "right" ? pad + s : s + pad;
 }
 
+/**
+ * Truncate to `width` visible columns, copying ANSI escapes whole so a cut never splits an escape
+ * sequence (which would garble the terminal). A single-column ellipsis marks the cut, and a reset
+ * closes any colour left open by the removed tail.
+ */
+export function truncateVisible(s: string, width: number): string {
+  if (width <= 0) return "";
+  if (visibleWidth(s) <= width) return s;
+  const budget = width - 1;
+  let out = "";
+  let visible = 0;
+  let i = 0;
+  while (i < s.length) {
+    // eslint-disable-next-line no-control-regex
+    const esc = /^\u001b\[[0-9;]*m/.exec(s.slice(i));
+    if (esc) {
+      out += esc[0];
+      i += esc[0].length;
+      continue;
+    }
+    if (visible >= budget) break;
+    out += s[i];
+    visible += 1;
+    i += 1;
+  }
+  return `${out}…\u001b[0m`;
+}
+
 /** Render rows as aligned columns. `align` is per column and defaults to left. */
 export function table(rows: string[][], align: Array<"left" | "right"> = []): string[] {
   const widths: number[] = [];

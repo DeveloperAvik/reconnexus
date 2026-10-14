@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policyId": "37a67903-37a6-464a-a9a5-859a0f841643",
+  "projectId": "249a7c4d-c98c-40c3-a359-4ba4e230feef",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "AUTH-123",
+    "authorizedBy": "Your Name",
+    "validFrom": "2026-10-14T10:52:05.456Z",
+    "validUntil": "2027-01-12T10:52:05.456Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "jnu.ac.bd",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

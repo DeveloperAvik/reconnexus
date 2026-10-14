@@ -15,6 +15,7 @@ var RecordTypes = []string{
 	TypeSecurityMetadata,
 	TypeSecretCandidate,
 	TypeSecretScanArtifact,
+	TypeTakeoverCandidate,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -80,6 +81,12 @@ func SampleRecords() []Record {
 		{Type: TypeSecretScanArtifact, Provider: "builtin-secret-scan", Source: "js", SecretScan: &SecretScanArtifactInfo{
 			ArtifactURL: "https://app.example.com/main.js", Host: "app.example.com",
 			Status: SecretArtifactAnalyzed, FindingsCount: 1, RawBytes: 1024, HMACKeyed: false,
+		}},
+		{Type: TypeTakeoverCandidate, URL: "https://app.example.com/", Host: "app.example.com", Provider: "builtin-takeover", Source: "takeover", Takeover: &TakeoverInfo{
+			Host: "app.example.com", CNAME: "app.example.com.github.io", Service: "GitHub Pages",
+			Status: TakeoverSuspected, Confidence: 0.8, HTTPStatus: &status,
+			Evidence:     "CNAME app.example.com -> app.example.com.github.io (GitHub Pages); unclaimed marker matched",
+			EvidenceType: "UNCLAIMED_MARKER",
 		}},
 	}
 }

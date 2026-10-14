@@ -58,15 +58,27 @@ state yields byte-identical reports.
 
 ## CLI
 
-`reconnexus report <scanId> [--format human|json|jsonl|csv]` (default `human`). Exit codes:
+`reconnexus report <scanId> [--format human|json|jsonl|csv|html] [--out <path>] [--max-rows <n>]`
+(default `human`). Every format is rendered from the one canonical model, so counts and statuses can
+never disagree between them; `--max-rows` bounds rows per inventory section while totals stay exact.
+With `--out` the report is written to a file (mode `0600`) instead of stdout. Exit codes:
 `0` success (including `PARTIAL`/`FAILED` analysis — the report was produced), `2` scan not found,
 `1` report generation failed (e.g. redaction fail-closed). The output always states `reportStatus`,
 so an operator can distinguish a missing scan, a not-run report, a successful empty report, a partial
 report, and a reporting failure.
 
+## HTML export
+
+`--format html` produces a single self-contained document (inline CSS, no scripts, no external
+references) suitable for printing or sharing. It is rendered from the same redacted model as the
+other formats, and **every interpolated value is HTML-escaped** via `esc()`, so a hostile hostname,
+title or evidence fragment is displayed as text, never executed; the only `href`s are in-document
+anchors. Redaction happens upstream (fail-closed), so the HTML cannot re-introduce a secret.
+
 ## Limitations
 
-- CLI-only: `human`, `json`, `jsonl`, `csv` are implemented; static HTML is not.
+- CLI-only: `human`, `json`, `jsonl`, `csv` and self-contained `html` are implemented. There is no
+  web dashboard and no server-side rendering.
 - A secret candidate is not a confirmed credential; a correlation is not proof of exploitability or
   causation. The report states this in its limitations.
 - The Phase 7 residual (a non-rule-matching secret on the same line as a detected match) is

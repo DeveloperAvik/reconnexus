@@ -45,7 +45,8 @@ core.
 | Reporting: redacted human/json/jsonl/csv with truthful scan-status derivation | ✅ |
 | Structured logging with secret redaction | ✅ |
 | Provider health checks (`doctor`, `providers`, Go `provider-check`) | ✅ |
-| Static HTML report export | ❌ not implemented (CLI-only product) |
+| Self-contained static HTML report export (`--format html`, escaped, no scripts) | ✅ |
+| Live assessment console (per-stage progress; frame on a TTY, structured lines otherwise) | ✅ |
 
 ## Hardening (Phase 8)
 
@@ -100,6 +101,7 @@ npm run rn -- doctor
 make worker-build
 
 # 5. Authorize and run a scan in one step (policy is auto-discovered from policies/)
+#    A live per-stage console is drawn on a TTY; use --json for machine-readable output.
 npm run rn -- scan start https://example.com/ --run
 
 # 6. Inspect results (the scan id is printed by scan start / scan list)
@@ -110,7 +112,8 @@ npm run rn -- urls "$SCAN" --stats
 npm run rn -- secrets "$SCAN"
 npm run rn -- takeover "$SCAN"
 npm run rn -- correlations "$SCAN"
-npm run rn -- report "$SCAN"                 # or --format json|jsonl|csv
+npm run rn -- report "$SCAN"                 # or --format json|jsonl|csv|html
+npm run rn -- report "$SCAN" --format html --out report.html
 ```
 
 Notes:

@@ -99,7 +99,6 @@ export async function initCommand(ctx: Context, opts: InitOptions): Promise<Comm
   return result({
     exitCode: ExitCode.SUCCESS,
     data: { domain: canonicalHost(domain), rootDomain: policy.inScope.domains[0]?.value, policyPath, configPath, authorization: policy.authorization },
-    warnings: [`Only scan targets you are explicitly authorized to test. Authorization reference: ${reference}.`],
     render: () =>
       [
         color.green("ReconNexus initialized."),
@@ -111,8 +110,6 @@ export async function initCommand(ctx: Context, opts: InitOptions): Promise<Comm
         `  authorized by: ${authorizedBy}`,
         `  reference:     ${reference}`,
         `  valid until:   ${policy.authorization.validUntil}`,
-        "",
-        color.yellow("Only use this on systems you are explicitly authorized to assess."),
         "",
         "Next steps:",
         "  reconnexus config migrate",

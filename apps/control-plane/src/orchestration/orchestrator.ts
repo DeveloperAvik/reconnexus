@@ -2,6 +2,7 @@ import { hostname } from "node:os";
 import {
   CorrelationRecordSchema,
   DiscoveryJobKind,
+  RECONNEXUS_VERSION,
   JobStatus,
   OrderedStages,
   ScopePolicySchema,
@@ -40,11 +41,38 @@ export interface OrchestratorDeps {
   onEvent?: (event: OrchestratorEvent) => void;
 }
 
+/**
+ * Progress events. Consumers render them; they are never the source of truth for a result (the
+ * persisted job/coverage/provider rows are), and emitting one must never affect the scan.
+ */
 export type OrchestratorEvent =
-  | { type: "scan-start"; scanId: string; rootDomain: string; stages: number }
-  | { type: "stage-start"; stage: string }
-  | { type: "provider-end"; stage: string; provider: string; status: string; records: number; durationMs: number }
-  | { type: "stage-end"; stage: string; status: string; durationMs: number; records: number; reason?: string }
+  | {
+      type: "scan-start";
+      scanId: string;
+      rootDomain: string;
+      startUrl: string;
+      /** Number of stages in this run's plan, and their ids in execution order. */
+      stages: number;
+      stageIds: string[];
+      profile: string;
+      startedAt: string;
+    }
+  | { type: "stage-start"; stage: string; attempt: number }
+  | { type: "provider-start"; stage: string; provider: string }
+  | {
+      type: "provider-end";
+      stage: string;
+      provider: string;
+      status: string;
+      records: number;
+      durationMs: number;
+      /** Record counts by discovery record type, exactly as returned by the provider. */
+      recordsByType: Record<string, number>;
+      /** True when a previously persisted result was reused instead of re-running the provider. */
+      reused: boolean;
+    }
+  | { type: "stage-retry"; stage: string; attempt: number; backoffMs: number }
+  | { type: "stage-end"; stage: string; status: string; durationMs: number; records: number; attempts: number; reason?: string }
   | { type: "scan-end"; status: string; durationMs: number };
 
 export interface ProviderOutcomeSummary {
@@ -53,15 +81,23 @@ export interface ProviderOutcomeSummary {
   outcome: string;
   records: number;
   reason: string;
+  providerVersion: string;
+  /** `null` when the provider's result was reused and no fresh duration was measured. */
+  durationMs: number | null;
+  timedOut: boolean;
+  truncated: boolean;
 }
 
 export interface ScanRunSummary {
   scanId: string;
   status: string;
-  stages: Array<{ stage: string; status: string; providers: ProviderOutcomeSummary[]; reason?: string }>;
+  stages: Array<{ stage: string; status: string; providers: ProviderOutcomeSummary[]; reason?: string; durationMs?: number }>;
   assetsCreated: number;
   observations: number;
   relationships: number;
+  /** Where this run's outputs live, so a caller can tell an operator what to open next. */
+  artifactsRoot: string;
+  profile: string;
 }
 
 const IMPLEMENTED_STAGES = new Set<string>([
@@ -151,6 +187,8 @@ export class ScanOrchestrator {
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
   private totals = { assetsCreated: 0, observations: 0, relationships: 0 };
+  /** Wall-clock window of the stage currently executing, so coverage can persist its duration. */
+  private stageClock: { stage: string; startedMs: number; startedAt: Date } | null = null;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.repo = new Repository(deps.db);
@@ -185,23 +223,45 @@ export class ScanOrchestrator {
     const stageOrder = new Map<string, number>(OrderedStages.map((s, i) => [s as string, i]));
     jobs.sort((a, b) => (stageOrder.get(a.stage) ?? 999) - (stageOrder.get(b.stage) ?? 999));
     const scanStartedMs = this.now().getTime();
-    this.emitEvent({ type: "scan-start", scanId, rootDomain: scan.root_domain, stages: jobs.length });
+    // Record what this run actually used, so the report describes the executed run rather than
+    // the configured defaults. Failure to annotate must not stop the scan.
+    const profile = this.profile();
+    try {
+      await this.repo.mergeScanConfigSnapshot(scanId, {
+        profile,
+        providerOverrides: this.deps.providerOverrides ?? {},
+        maxAttempts: this.maxAttempts,
+        toolVersion: RECONNEXUS_VERSION,
+      });
+    } catch (err) {
+      this.deps.logger.warn("could not record run profile", { scanId, error: (err as Error).message });
+    }
+    this.emitEvent({
+      type: "scan-start",
+      scanId,
+      rootDomain: scan.root_domain,
+      startUrl: scan.start_url,
+      stages: jobs.length,
+      stageIds: jobs.map((j) => j.stage),
+      profile,
+      startedAt: new Date(scanStartedMs).toISOString(),
+    });
     const completed = new Set<string>();
-    const stageSummaries: Array<{ stage: string; status: string; providers: ProviderOutcomeSummary[]; reason?: string }> = [];
+    const stageSummaries: ScanRunSummary["stages"] = [];
     const terminalSuccess = new Set<string>([JobStatus.SUCCEEDED, JobStatus.PARTIAL, JobStatus.SKIPPED, JobStatus.CANCELLED]);
 
     for (const job of jobs) {
       if (terminalSuccess.has(job.status)) {
         completed.add(job.job_key);
         stageSummaries.push({ stage: job.stage, status: job.status, providers: [], reason: "completed before this run" });
-        this.emitEvent({ type: "stage-end", stage: job.stage, status: job.status, durationMs: 0, records: 0, reason: "completed before this run" });
+        this.emitEvent({ type: "stage-end", stage: job.stage, status: job.status, durationMs: 0, records: 0, attempts: job.attempts, reason: "completed before this run" });
         continue;
       }
       const cancelled = await this.isCancelled(scanId);
       if (cancelled) {
         await this.repo.setJobStatus(scanId, job.job_key, JobStatus.CANCELLED);
         stageSummaries.push({ stage: job.stage, status: JobStatus.CANCELLED, providers: [] });
-        this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.CANCELLED, durationMs: 0, records: 0 });
+        this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.CANCELLED, durationMs: 0, records: 0, attempts: job.attempts });
         continue;
       }
       if (completed.has(job.job_key) || !this.dependenciesSatisfied(job, jobs, completed)) {
@@ -209,7 +269,7 @@ export class ScanOrchestrator {
         if (!this.dependenciesSatisfied(job, jobs, completed)) {
           await this.repo.setJobStatus(scanId, job.job_key, JobStatus.BLOCKED, "a prerequisite stage did not succeed");
           stageSummaries.push({ stage: job.stage, status: JobStatus.BLOCKED, providers: [], reason: "a prerequisite stage did not succeed" });
-          this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.BLOCKED, durationMs: 0, records: 0, reason: "a prerequisite stage did not succeed" });
+          this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.BLOCKED, durationMs: 0, records: 0, attempts: job.attempts, reason: "a prerequisite stage did not succeed" });
         }
         continue;
       }
@@ -218,21 +278,32 @@ export class ScanOrchestrator {
         await upsertCoverageInternal(this.deps.db, { scanId, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "not implemented in this build" });
         stageSummaries.push({ stage: job.stage, status: JobStatus.SKIPPED, providers: [], reason: "not implemented in this build" });
         completed.add(job.job_key);
-        this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.SKIPPED, durationMs: 0, records: 0, reason: "not implemented in this build" });
+        this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.SKIPPED, durationMs: 0, records: 0, attempts: job.attempts, reason: "not implemented in this build" });
         continue;
       }
 
-      this.emitEvent({ type: "stage-start", stage: job.stage });
-      const stageStartedMs = this.now().getTime();
+      this.emitEvent({ type: "stage-start", stage: job.stage, attempt: job.attempts + 1 });
+      const stageStartedAt = this.now();
+      const stageStartedMs = stageStartedAt.getTime();
+      this.stageClock = { stage: job.stage, startedMs: stageStartedMs, startedAt: stageStartedAt };
       const stageResult = await this.runStageWithRetries(scan, job, policy);
-      stageSummaries.push({ stage: job.stage, status: stageResult.status, providers: stageResult.providers, ...(stageResult.reason ? { reason: stageResult.reason } : {}) });
+      const stageDurationMs = this.now().getTime() - stageStartedMs;
+      this.stageClock = null;
+      stageSummaries.push({
+        stage: job.stage,
+        status: stageResult.status,
+        providers: stageResult.providers,
+        durationMs: stageDurationMs,
+        ...(stageResult.reason ? { reason: stageResult.reason } : {}),
+      });
       completed.add(job.job_key);
       this.emitEvent({
         type: "stage-end",
         stage: job.stage,
         status: stageResult.status,
-        durationMs: this.now().getTime() - stageStartedMs,
+        durationMs: stageDurationMs,
         records: stageResult.providers.reduce((n, p) => n + p.records, 0),
+        attempts: stageResult.attempts,
         ...(stageResult.reason ? { reason: stageResult.reason } : {}),
       });
     }
@@ -251,7 +322,20 @@ export class ScanOrchestrator {
       assetsCreated: this.totals.assetsCreated,
       observations: this.totals.observations,
       relationships: this.totals.relationships,
+      artifactsRoot: this.deps.config.artifacts.root,
+      profile: this.profile(),
     };
+  }
+
+  /**
+   * The provider-selection profile for this run: `default` when every stage uses its configured
+   * provider set, `custom` when the caller overrode providers or the attempt budget.
+   */
+  private profile(): string {
+    const overrides = this.deps.providerOverrides ?? {};
+    const overridden = Object.keys(overrides).filter((k) => (overrides as Record<string, string[] | undefined>)[k]?.length);
+    if (overridden.length === 0 && this.deps.maxAttempts === undefined) return "default";
+    return "custom";
   }
 
   private emitEvent(event: OrchestratorEvent): void {
@@ -277,38 +361,48 @@ export class ScanOrchestrator {
     });
   }
 
-  private async runStageWithRetries(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+  private async runStageWithRetries(
+    scan: ScanRow,
+    job: JobRow,
+    policy: ScopePolicy,
+  ): Promise<{ status: string; providers: ProviderOutcomeSummary[]; attempts: number; reason?: string }> {
     let lastProviders: ProviderOutcomeSummary[] = [];
+    let attemptsUsed = job.attempts;
     for (let attempt = job.attempts + 1; attempt <= Math.max(job.max_attempts, this.maxAttempts); attempt++) {
+      attemptsUsed = attempt;
       if (await this.isCancelled(scan.id)) {
         await this.repo.setJobStatus(scan.id, job.job_key, JobStatus.CANCELLED);
-        return { status: JobStatus.CANCELLED, providers: lastProviders };
+        return { status: JobStatus.CANCELLED, providers: lastProviders, attempts: attemptsUsed };
       }
       const claimed = await this.repo.claimJob(scan.id, job.job_key, this.workerId, 300);
       if (!claimed) {
         const rows = await this.repo.getJobRows(scan.id);
         const current = rows.find((j) => j.job_key === job.job_key);
-        return { status: current?.status ?? JobStatus.FAILED, providers: lastProviders };
+        return { status: current?.status ?? JobStatus.FAILED, providers: lastProviders, attempts: current?.attempts ?? attemptsUsed };
       }
       const result = await this.executeStage(scan, job, policy);
       lastProviders = result.providers;
+      // Stage results are persisted by the stage itself (records, coverage, provider outcomes)
+      // before the job is marked terminal, so a crash between the two never reports success for
+      // data that was not written.
       if (result.status === JobStatus.SUCCEEDED || result.status === JobStatus.PARTIAL || result.status === JobStatus.SKIPPED || result.status === JobStatus.BLOCKED) {
         await this.repo.setJobStatus(scan.id, job.job_key, result.status);
-        return result;
+        return { ...result, attempts: attemptsUsed };
       }
       // Failed or unavailable.
       const retryable = result.providers.length > 0 && result.providers.every((p) => p.outcome === JobStatus.FAILED);
       if (!retryable || attempt >= job.max_attempts) {
         await this.repo.setJobStatus(scan.id, job.job_key, result.status, result.reason ?? result.status);
-        return result;
+        return { ...result, attempts: attemptsUsed };
       }
       const backoff = Math.min(30000, 500 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
       this.deps.logger.warn("stage failed; retrying", { scanId: scan.id, stage: job.stage, attempt, backoffMs: backoff });
+      this.emitEvent({ type: "stage-retry", stage: job.stage, attempt, backoffMs: backoff });
       await this.repo.requeueJob(scan.id, job.job_key, this.now());
       await this.sleep(backoff);
     }
     await this.repo.setJobStatus(scan.id, job.job_key, JobStatus.FAILED, "exhausted retries");
-    return { status: JobStatus.FAILED, providers: lastProviders };
+    return { status: JobStatus.FAILED, providers: lastProviders, attempts: attemptsUsed, reason: "exhausted retries" };
   }
 
   private async executeStage(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
@@ -387,7 +481,7 @@ export class ScanOrchestrator {
         expected: 1,
         collected: 1,
         notes: `reportStatus=${redacted.reportStatus}`,
-        details: { reportStatus: redacted.reportStatus, secretFindings: redacted.secretFindings.length, correlations: redacted.correlations.length },
+        details: { reportStatus: redacted.reportStatus, secretFindings: redacted.secretFindings.length, correlations: redacted.correlations.length, ...this.stageTiming(job.stage) },
       });
     });
     return { status: JobStatus.SUCCEEDED, providers: [] };
@@ -521,7 +615,7 @@ export class ScanOrchestrator {
         expected: findings.length + corroboration.length,
         collected: groups + corroborated,
         notes: `secretGroups=${groups} edges=${edges} corroborated=${corroborated}${truncated ? " (truncated)" : ""}`,
-        details: { secretGroups: groups, edges, corroborated, coverageGaps: gaps },
+        details: { secretGroups: groups, edges, corroborated, coverageGaps: gaps, ...this.stageTiming(job.stage) },
       });
     });
 
@@ -580,7 +674,7 @@ export class ScanOrchestrator {
         expected: total,
         collected: classified,
         notes: total === 0 ? "no URLs to categorize" : `${classified}/${total} URLs classified`,
-        details: { byCategory },
+        details: { byCategory, ...this.stageTiming(job.stage) },
       }),
     );
     return { status, providers: [] };
@@ -834,7 +928,7 @@ export class ScanOrchestrator {
       if (a.inserted) this.totals.assetsCreated++;
       await insertObservation(client, { projectId: scan.project_id, scanId: scan.id, assetId: a.id, source: "control-plane", sourceReliability: "AUTHORITATIVE", observedAt: now, kind: "target", data: { startUrl: scan.start_url, rootDomain: scan.root_domain } });
       this.totals.observations++;
-      await upsertCoverageInternal(client, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "COLLECTED", expected: 1, collected: 1, notes: "root target recorded" });
+      await upsertCoverageInternal(client, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "COLLECTED", expected: 1, collected: 1, notes: "root target recorded", details: this.stageTiming(job.stage) });
     });
     return { status: JobStatus.SUCCEEDED, providers: [] };
   }
@@ -918,12 +1012,34 @@ export class ScanOrchestrator {
   }): Promise<ProviderOutcomeSummary> {
     const { scan, job, policy, kind, provider, inputs } = args;
 
-    // Idempotency: reuse a provider that already produced results for this stage.
+    // Idempotency: reuse a provider that already produced results for this stage. A reused result
+    // reports no duration (it was not measured in this run) rather than a misleading zero.
     const existing = (await this.repo.listProviderOutcomes(scan.id)).find((o) => o.stage === job.stage && o.provider === provider);
     if (existing && (existing.outcome === JobStatus.SUCCEEDED || existing.outcome === JobStatus.PARTIAL)) {
-      this.emitEvent({ type: "provider-end", stage: job.stage, provider, status: existing.outcome, records: existing.records_count, durationMs: 0 });
-      return { stage: job.stage, provider, outcome: existing.outcome, records: existing.records_count, reason: "reused previous result" };
+      this.emitEvent({
+        type: "provider-end",
+        stage: job.stage,
+        provider,
+        status: existing.outcome,
+        records: existing.records_count,
+        durationMs: 0,
+        recordsByType: {},
+        reused: true,
+      });
+      return {
+        stage: job.stage,
+        provider,
+        outcome: existing.outcome,
+        records: existing.records_count,
+        reason: "reused previous result",
+        providerVersion: existing.provider_version ?? "",
+        durationMs: null,
+        timedOut: false,
+        truncated: false,
+      };
     }
+
+    this.emitEvent({ type: "provider-start", stage: job.stage, provider });
 
     const runtimeMs = policy.limits.maxRuntimeSeconds * 1000;
     // Give the worker an inner deadline shorter than the control-plane kill, so it can return
@@ -965,7 +1081,7 @@ export class ScanOrchestrator {
       this.totals.assetsCreated += ingest.assetsCreated;
       this.totals.observations += ingest.observations;
       this.totals.relationships += ingest.relationships;
-      await recordProviderExecution(client, { scanId: scan.id, jobId: job.id, provider, providerVersion: result.providerVersion, result, status: result.status });
+      await recordProviderExecution(client, { scanId: scan.id, jobId: job.id, provider, providerVersion: result.providerVersion, result, status: result.status, durationMs });
       await upsertProviderOutcome(client, {
         scanId: scan.id,
         projectId: scan.project_id,
@@ -980,8 +1096,27 @@ export class ScanOrchestrator {
     });
 
     this.deps.logger.info("provider executed", { scanId: scan.id, stage: job.stage, provider, status: result.status, records: result.records.length, durationMs });
-    this.emitEvent({ type: "provider-end", stage: job.stage, provider, status: result.status, records: result.records.length, durationMs });
-    return { stage: job.stage, provider, outcome: result.status, records: result.records.length, reason: result.diagnostics.slice(0, 2).join(" | ") };
+    this.emitEvent({
+      type: "provider-end",
+      stage: job.stage,
+      provider,
+      status: result.status,
+      records: result.records.length,
+      durationMs,
+      recordsByType: countRecordsByType(result.records),
+      reused: false,
+    });
+    return {
+      stage: job.stage,
+      provider,
+      outcome: result.status,
+      records: result.records.length,
+      reason: result.diagnostics.slice(0, 2).join(" | "),
+      providerVersion: result.providerVersion,
+      durationMs,
+      timedOut: result.execution.timedOut,
+      truncated: result.execution.truncated,
+    };
   }
 
   private async writeStageCoverage(
@@ -1003,9 +1138,25 @@ export class ScanOrchestrator {
         expected,
         collected,
         notes: outcomes.map((o) => `${o.provider}:${o.outcome}`).join(" "),
-        details: { providers: outcomes, ...(extraDetails ?? {}) },
+        details: { providers: outcomes, ...this.stageTiming(job.stage), ...(extraDetails ?? {}) },
       }),
     );
+  }
+
+  /**
+   * Execution timing for the stage being run, persisted alongside coverage so reporting reads a
+   * measured duration rather than recomputing one. Returns nothing when the clock is not this
+   * stage's, so a stale or absent measurement is never presented as a real one.
+   */
+  private stageTiming(stage: string): { startedAt?: string; finishedAt?: string; durationMs?: number } {
+    const clock = this.stageClock;
+    if (!clock || clock.stage !== stage) return {};
+    const finished = this.now();
+    return {
+      startedAt: clock.startedAt.toISOString(),
+      finishedAt: finished.toISOString(),
+      durationMs: Math.max(0, finished.getTime() - clock.startedMs),
+    };
   }
 
   private async reconcileScanStatus(scanId: string, scan: ScanRow): Promise<string> {
@@ -1028,6 +1179,15 @@ export class ScanOrchestrator {
     void scan;
     return JobStatus.PARTIAL;
   }
+}
+
+/** Record counts by discovery record type, taken verbatim from a provider result. */
+export function countRecordsByType(records: ReadonlyArray<{ type: string }>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of records) out[r.type] = (out[r.type] ?? 0) + 1;
+  const sorted: Record<string, number> = {};
+  for (const k of Object.keys(out).sort()) sorted[k] = out[k]!;
+  return sorted;
 }
 
 export function aggregate(outcomes: string[]): string {
