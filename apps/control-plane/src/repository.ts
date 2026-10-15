@@ -226,6 +226,45 @@ export class Repository {
     return res.rows;
   }
 
+  /**
+   * Assets observed during a single scan (assets have project scope, so "seen in this scan" means
+   * the asset is the subject of at least one observation whose scan_id is this scan). Ordered
+   * deterministically so scan-to-scan comparisons are stable.
+   */
+  async listScanAssets(scanId: string, types?: string[]): Promise<Array<{ id: string; type: string; canonical_key: string; value: string }>> {
+    const res = await this.db.query<{ id: string; type: string; canonical_key: string; value: string }>(
+      `SELECT DISTINCT a.id, a.type, a.canonical_key, a.value
+         FROM observations o
+         JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND ($2::text[] IS NULL OR a.type = ANY($2))
+        ORDER BY a.type, a.value`,
+      [scanId, types ?? null],
+    );
+    return res.rows;
+  }
+
+  /**
+   * Observations of a single scan filtered by exact `kinds` and/or a `kindPrefix` (e.g. `dns:`),
+   * joined to their subject asset. Read-only; returns only the columns comparison needs, in a
+   * deterministic order, so a scan-to-scan comparison is stable and bounded to the kinds asked for.
+   */
+  async listScanObservations(
+    scanId: string,
+    filter: { kinds?: string[]; kindPrefix?: string } = {},
+  ): Promise<Array<{ asset_type: string; asset_value: string; canonical_key: string; kind: string; data: Record<string, unknown>; source: string; observed_at: Date }>> {
+    const res = await this.db.query<{ asset_type: string; asset_value: string; canonical_key: string; kind: string; data: Record<string, unknown>; source: string; observed_at: Date }>(
+      `SELECT a.type AS asset_type, a.value AS asset_value, a.canonical_key, o.kind, o.data, o.source, o.observed_at
+         FROM observations o
+         JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1
+          AND ($2::text[] IS NULL OR o.kind = ANY($2))
+          AND ($3::text IS NULL OR o.kind LIKE $3 || '%')
+        ORDER BY o.kind, a.value, o.observed_at, o.id`,
+      [scanId, filter.kinds ?? null, filter.kindPrefix ?? null],
+    );
+    return res.rows;
+  }
+
   async listResolvedIpHostPairs(projectId: string, limit: number): Promise<Array<{ ip: string; host: string }>> {
     const res = await this.db.query<{ ip: string; host: string }>(
       `SELECT DISTINCT i.value AS ip, h.value AS host
@@ -324,15 +363,57 @@ export class Repository {
     return res.rows as never;
   }
 
+  /**
+   * Distinct API endpoints (one row per `method origin path` canonical identity), regardless of how
+   * many observations or sources reported them. When several source observations exist for one
+   * endpoint, a documented one is preferred, then the earliest observation, so the row is
+   * deterministic. Raw observation counts are available separately via `countApiEndpointObservations`.
+   */
   async listApiEndpoints(scanId: string, limit = 20000): Promise<Array<{ key: string; data: Record<string, unknown> }>> {
     const res = await this.db.query(
-      `SELECT a.canonical_key AS key, o.data AS data
+      `SELECT DISTINCT ON (a.canonical_key) a.canonical_key AS key, o.data AS data
          FROM observations o JOIN assets a ON a.id = o.asset_id
         WHERE o.scan_id = $1 AND o.kind = 'api-endpoint'
-        ORDER BY a.canonical_key LIMIT $2`,
+        ORDER BY a.canonical_key, COALESCE((o.data->>'documented')::boolean, false) DESC, o.observed_at ASC, o.id
+        LIMIT $2`,
       [scanId, limit],
     );
     return res.rows as never;
+  }
+
+  /** Distinct API endpoints by canonical identity (deduplicated across observations and sources). */
+  async countDistinctApiEndpoints(scanId: string): Promise<number> {
+    const res = await this.db.query<{ n: number }>(
+      `SELECT count(DISTINCT a.canonical_key)::int AS n
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'api-endpoint'`,
+      [scanId],
+    );
+    return Number(res.rows[0]?.n ?? 0);
+  }
+
+  /** Raw persisted API-endpoint observations, before deduplication by canonical identity. */
+  async countApiEndpointObservations(scanId: string): Promise<number> {
+    const res = await this.db.query<{ n: string }>(
+      "SELECT count(*)::text AS n FROM observations WHERE scan_id = $1 AND kind = 'api-endpoint'",
+      [scanId],
+    );
+    return Number(res.rows[0]?.n ?? 0);
+  }
+
+  /** Distinct endpoints per discovery source and per provider (endpoints may appear in several). */
+  async apiEndpointBreakdown(scanId: string): Promise<Array<{ source: string; provider: string; n: number }>> {
+    const res = await this.db.query<{ source: string; provider: string; n: number }>(
+      `SELECT COALESCE(o.data->>'discoveredVia','') AS source,
+              COALESCE(o.data->>'provider','') AS provider,
+              count(DISTINCT a.canonical_key)::int AS n
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'api-endpoint'
+        GROUP BY COALESCE(o.data->>'discoveredVia',''), COALESCE(o.data->>'provider','')
+        ORDER BY COALESCE(o.data->>'discoveredVia',''), COALESCE(o.data->>'provider','')`,
+      [scanId],
+    );
+    return res.rows;
   }
 
   async listSourceMaps(scanId: string, limit = 5000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {

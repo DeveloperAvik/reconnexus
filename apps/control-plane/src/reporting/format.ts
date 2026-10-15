@@ -129,6 +129,12 @@ export function formatHuman(input: Report): string {
     const note = !sec.truncated ? "" : sec.shown < sec.total ? "(truncated)" : "(derived from a capped sample)";
     lines.push(`  ${pad(name, 14)} ${pad(String(sec.total), 8)} ${pad(String(sec.shown), 8)} ${note}`.trimEnd());
   }
+  const recon = report.reconciliation ?? {};
+  const bySource = Object.entries(recon.endpointsBySource ?? {}).map(([k, v]) => `${k || "unknown"}=${v}`).join(" ") || "-";
+  const byProvider = Object.entries(recon.endpointsByProvider ?? {}).map(([k, v]) => `${k || "unknown"}=${v}`).join(" ") || "-";
+  lines.push(
+    `  endpoints:     raw=${recon.endpointRawObservations ?? 0} distinct=${recon.endpointDistinct ?? 0} shown=${recon.endpointShown ?? 0}  bySource=[${bySource}] byProvider=[${byProvider}]`,
+  );
   lines.push("");
   const t = report.findingTotals;
   lines.push(`Findings: ${t.total}  (critical=${t.bySeverity.CRITICAL ?? 0} high=${t.bySeverity.HIGH ?? 0} medium=${t.bySeverity.MEDIUM ?? 0} low=${t.bySeverity.LOW ?? 0} info=${t.bySeverity.INFO ?? 0}; validated=${t.validated})`);

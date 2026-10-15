@@ -18,6 +18,24 @@ Passive providers only query third-party archives; they never send traffic to th
 they return is re-checked against the scope policy before persistence, and out-of-scope candidates
 are counted as skipped and neither persisted nor crawled.
 
+## Script-reference discovery (`<script src>`)
+
+The active crawler additionally parses the `src` attribute of `<script>` tags in in-scope HTML
+documents. For each reference it:
+
+- resolves the URL against the **effective** document URL (after redirects), so relative,
+  root-relative, protocol-relative and query-bearing references all resolve correctly;
+- authorizes and canonicalizes it, deduplicating by canonical identity;
+- marks the URL observation `scriptRef: true` with `parentUrl` set to the referencing document;
+- adds a `JAVASCRIPT` classification (`evidenceType: SCRIPT_REF`) when the path has no script
+  extension, so extensionless bundles reach Stage 07 (JS intelligence).
+
+Inline script bodies are never parsed for URLs, and a reference to a clearly non-script asset
+(image/font/CSS/download) is not relabelled as JavaScript. Script and static URLs are recorded in the
+inventory but are **not** added to the crawl frontier, so they do not consume the request budget;
+Stage 07 retrieves them once with content validation. Stage 07 selects URLs classified `JAVASCRIPT`,
+referenced by a `<script src>` (`scriptRef`), or ending in `.js`/`.mjs`.
+
 ## Canonicalization (deduplication identity)
 
 `canonicalUrl` is the dedup key. Applied transformations:

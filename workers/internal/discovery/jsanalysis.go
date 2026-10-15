@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -154,7 +155,10 @@ func analyseOne(ctx context.Context, client *http.Client, pc ProviderContext, ra
 	artifact.Truncated = truncated
 	artifact.Status = ArtifactRetrieved
 	// Misleading MIME: served as JS but is actually HTML (common WAF/404 page).
-	if strings.Contains(strings.ToLower(artifact.ContentType), "html") || strings.HasPrefix(strings.TrimSpace(strings.ToLower(body)), "<!doctype html") {
+	isHTML := strings.Contains(strings.ToLower(artifact.ContentType), "html") ||
+		strings.HasPrefix(strings.TrimSpace(strings.ToLower(string(body))), "<!doctype html") ||
+		strings.HasPrefix(strings.TrimSpace(strings.ToLower(string(body))), "<html")
+	if isHTML {
 		artifact.Status = ArtifactMismatchedMime
 	}
 	if truncated {
@@ -164,6 +168,22 @@ func analyseOne(ctx context.Context, client *http.Client, pc ProviderContext, ra
 		if c, err := matching.CanonicalURL(resp.Request.URL.String()); err == nil {
 			artifact.CanonicalURL = c
 		}
+	}
+
+	// Content validation: an HTML error page or a non-script asset (image, font, video, PDF,
+	// archive) is not JavaScript, whatever the URL extension said. Record the observation and its
+	// classification rationale, but never run lexical JS analysis over HTML or binary content.
+	if isHTML || truncated {
+		out = append(out, Record{Type: TypeJSArtifact, URL: rawURL, CanonicalURL: artifact.CanonicalURL, Provider: "builtin-js", Source: "js", Artifact: &artifact})
+		if isHTML {
+			return out, []string{"skipped non-JavaScript artifact " + truncate(canon, 100) + ": served HTML (" + truncate(artifact.ContentType, 60) + ")"}, true, 0
+		}
+		return out, []string{"skipped oversized artifact " + truncate(canon, 100)}, true, 0
+	}
+	if reason, nonScript := nonScriptContent(artifact.ContentType, []byte(body)); nonScript {
+		artifact.Status = ArtifactSkipped
+		out = append(out, Record{Type: TypeJSArtifact, URL: rawURL, CanonicalURL: artifact.CanonicalURL, Provider: "builtin-js", Source: "js", Artifact: &artifact})
+		return out, []string{"skipped non-JavaScript artifact " + truncate(canon, 100) + ": " + reason}, true, 1
 	}
 	out = append(out, Record{Type: TypeJSArtifact, URL: rawURL, CanonicalURL: artifact.CanonicalURL, Provider: "builtin-js", Source: "js", Artifact: &artifact})
 
@@ -258,6 +278,49 @@ func originOfURL(raw string) string {
 		return ""
 	}
 	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host)
+}
+
+// nonScriptContent reports whether a fetched artifact is clearly not JavaScript, based on a
+// magic-byte sniff of the body and then the declared content type. It deliberately does not skip
+// on a missing or generic content type, so dynamically served text/JavaScript is still analysed;
+// only strong evidence (a binary signature, or an asset/document MIME type) excludes an artifact.
+func nonScriptContent(contentType string, body []byte) (string, bool) {
+	switch {
+	case bytes.HasPrefix(body, []byte{0xFF, 0xD8, 0xFF}):
+		return "JPEG image signature", true
+	case bytes.HasPrefix(body, []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}):
+		return "PNG image signature", true
+	case bytes.HasPrefix(body, []byte("GIF87a")) || bytes.HasPrefix(body, []byte("GIF89a")):
+		return "GIF image signature", true
+	case bytes.HasPrefix(body, []byte("%PDF")):
+		return "PDF signature", true
+	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
+		return "ZIP/archive signature", true
+	case bytes.HasPrefix(body, []byte{0x1F, 0x8B}):
+		return "gzip signature", true
+	case bytes.HasPrefix(body, []byte("wOFF")) || bytes.HasPrefix(body, []byte("wOF2")):
+		return "WOFF font signature", true
+	case bytes.HasPrefix(body, []byte{0x00, 0x01, 0x00, 0x00}) || bytes.HasPrefix(body, []byte("OTTO")):
+		return "OpenType font signature", true
+	}
+	ct := strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+	switch {
+	case ct == "":
+		return "", false
+	case strings.HasPrefix(ct, "image/"),
+		strings.HasPrefix(ct, "font/"),
+		strings.HasPrefix(ct, "video/"),
+		strings.HasPrefix(ct, "audio/"),
+		strings.HasPrefix(ct, "application/x-font"),
+		ct == "text/css",
+		ct == "text/csv",
+		ct == "application/pdf",
+		ct == "application/zip",
+		ct == "application/gzip",
+		ct == "application/x-shockwave-flash":
+		return "non-script content type " + ct, true
+	}
+	return "", false
 }
 
 // --- bounded static analysis (RE2, linear time) ---

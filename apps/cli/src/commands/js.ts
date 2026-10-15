@@ -90,12 +90,15 @@ export async function apisCommand(ctx: Context, scanId: string, opts: ApisListOp
     const limited = opts.limit ? filtered.slice(0, opts.limit) : filtered;
     const byVia: Record<string, number> = {};
     for (const e of filtered) byVia[e.discoveredVia ?? "?"] = (byVia[e.discoveredVia ?? "?"] ?? 0) + 1;
+    // Distinct endpoints are the headline; the raw observation count explains a higher report card
+    // number (the same endpoint found by several sources is one endpoint but several observations).
+    const rawObservations = await repo.countApiEndpointObservations(scanId);
     return result({
       exitCode: ExitCode.SUCCESS,
-      data: { scanId, total: filtered.length, byVia, endpoints: limited },
+      data: { scanId, total: filtered.length, rawObservations, byVia, endpoints: limited },
       render: () =>
         [
-          `API endpoints for scan ${scanId}: ${filtered.length}  (by source: ${JSON.stringify(byVia)})`,
+          `API endpoints for scan ${scanId}: ${filtered.length} distinct (from ${rawObservations} observation(s))  (by source: ${JSON.stringify(byVia)})`,
           "",
           ...limited.map((e) => {
             const doc = e.documented ? "doc" : e.resolved === false ? "dyn" : "obs";

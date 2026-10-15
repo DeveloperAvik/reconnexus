@@ -213,6 +213,32 @@ func TestHttpRedirectEnforcement(t *testing.T) {
 	}
 }
 
+func TestHttpRedirectLoopIsBounded(t *testing.T) {
+	// A self-referential redirect must terminate at the configured hop limit, not loop forever.
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, "/loop", http.StatusFound)
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+	res, _ := Run(context.Background(), httpJob([]string{"http://example.com:" + portOf(t, srv.URL) + "/loop"}), nil)
+	h := statusOf(res)
+	if h == nil {
+		t.Fatalf("no http observation")
+	}
+	if h.ProbeStatus != ProbeTooManyRedirects {
+		t.Fatalf("expected TOO_MANY_REDIRECTS, got %s (%s)", h.ProbeStatus, h.Error)
+	}
+	// The chain is capped: the server is not hammered without bound.
+	if got := atomic.LoadInt32(&hits); got > 12 {
+		t.Fatalf("redirect loop not bounded: %d requests", got)
+	}
+	if len(h.RedirectChain) > 12 {
+		t.Fatalf("unbounded redirect chain recorded: %d hops", len(h.RedirectChain))
+	}
+}
+
 func TestHttpDnsRebindingBlockedAtConnection(t *testing.T) {
 	var calls int32
 	var srv *httptest.Server

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policyId": "ff10fd22-1fd5-4ace-85b2-ee83da022a23",
+  "projectId": "21d3f3c9-b2f2-465d-b6fa-51b72c7b7fc8",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "h",
+    "authorizedBy": "you",
+    "validFrom": "2026-10-15T07:29:32.442Z",
+    "validUntil": "2027-01-13T07:29:32.442Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "dunyanews.tv",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

@@ -52,9 +52,23 @@ observations and (future) inferred relationships are kept distinct.
 `reconnexus security <scanId> [--category C] [--status S] [--host H] [--limit N]` lists metadata
 with status/category summaries. JSON output uses the standard envelope.
 
+## Findings (conservative)
+
+Security metadata is **inventory by default**. A single response is not proof that a control is
+universally missing, so an absent header, an `INCONSISTENT` CORS combination or a collection failure
+is never turned into a finding.
+
+Exactly one finding rule is derived (`apps/control-plane/src/reporting/findings.ts`,
+`insecureCookieFindings`): a cookie set over HTTPS (`Secure` absent) yields a **LOW**, `SUSPECTED`
+candidate scoped to the endpoint, with the Set-Cookie attributes as evidence. It is explicitly not a
+claim of exposure — that needs HTTP reachability and the cookie's purpose. The rule deduplicates by
+service+cookie name and never fires for `NOT_OBSERVED` controls, plaintext-HTTP responses, `Secure`
+cookies, or other categories.
+
 ## Limitations
 
 - CORS is observed from a normal GET (no synthetic `Origin`); reflective-CORS behaviour is not
   tested and is stated as a limitation on the observation.
 - `NOT_OBSERVED` describes one response at one point in time.
-- No exploitability or vulnerability claims are made in this phase.
+- The insecure-cookie finding is a candidate misconfiguration observation, not a demonstrated
+  vulnerability; validation is manual.

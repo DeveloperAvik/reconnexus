@@ -99,6 +99,49 @@ function badge(text: string, cls: string): string {
   return `<span class="badge ${cls}">${esc(text)}</span>`;
 }
 
+/** Colour modifier for the headline verdict panel, keyed to the overall report status. */
+function verdictModifier(reportStatus: string): string {
+  switch (reportStatus) {
+    case "COMPLETE_NO_FINDINGS":
+      return "verdict-clean";
+    case "COMPLETE_WITH_FINDINGS":
+      return "verdict-findings";
+    case "PARTIAL":
+    case "REPORTING_NOT_RUN":
+      return "verdict-warn";
+    case "FAILED":
+    case "REPORTING_FAILED":
+      return "verdict-bad";
+    default:
+      return "verdict-idle";
+  }
+}
+
+/** A plain-language sentence an operator can act on without reading the whole report. */
+function verdictHeadline(reportStatus: string, findings: number): string {
+  switch (reportStatus) {
+    case "COMPLETE_NO_FINDINGS":
+      return "Assessment complete — no candidate findings";
+    case "COMPLETE_WITH_FINDINGS":
+      return `Assessment complete — ${findings} candidate finding${findings === 1 ? "" : "s"} to review`;
+    case "PARTIAL":
+      return "Assessment partial — results are incomplete";
+    case "FAILED":
+      return "Assessment failed — this is not a clean result";
+    case "REPORTING_NOT_RUN":
+      return "Reporting has not run — a snapshot of current state";
+    case "REPORTING_FAILED":
+      return "Report generation failed";
+    default:
+      return "Assessment status";
+  }
+}
+
+/** True only when every stage completed, so a lack of findings can be stated confidently. */
+function isComplete(reportStatus: string): boolean {
+  return reportStatus === "COMPLETE_WITH_FINDINGS" || reportStatus === "COMPLETE_NO_FINDINGS";
+}
+
 /** `-` whenever a value was not measured, so a missing metric never reads as zero. */
 function num(value: number | null | undefined): string {
   return value === null || value === undefined ? "<span class=\"na\" title=\"not recorded\">—</span>" : esc(value.toLocaleString("en-US"));
@@ -215,7 +258,7 @@ function findingCard(f: ReportFinding): string {
 }
 
 const STYLES = `
-:root{--bg:#fff;--fg:#14171a;--muted:#5b6670;--line:#e2e6ea;--card:#f7f9fa;--ok:#1b7f4b;--partial:#9a6200;--fail:#b3261e;--idle:#5b6670;--cancel:#7a4f9a;--accent:#1f4f82}
+:root{--bg:#fff;--fg:#14171a;--muted:#5b6670;--line:#e2e6ea;--card:#f7f9fa;--ok:#1b7f4b;--partial:#9a6200;--fail:#b3261e;--idle:#5b6670;--cancel:#7a4f9a;--accent:#1f4f82;--warnbg:#fff6e5}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
@@ -232,8 +275,33 @@ a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent}
 a:hover,a:focus{border-bottom-color:currentColor}
 nav p{display:flex;flex-wrap:wrap;gap:4px 10px}
 code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em;overflow-wrap:anywhere;background:var(--card);padding:1px 4px;border-radius:3px}
-.verdict{display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:6px;padding:14px 16px}
+.verdict{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:6px;padding:14px 16px}
 .verdict .big{font-size:1.05rem;font-weight:600}
+.verdict-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.verdict-badge{font-size:.78rem}
+.verdict-text{font-size:1.02rem;margin:10px 0 6px}
+.verdict-sub{color:var(--muted);font-size:.85rem;margin:0}
+.verdict-clean{border-left-color:var(--ok)}
+.verdict-findings{border-left-color:var(--accent)}
+.verdict-warn{border-left-color:var(--partial)}
+.verdict-bad{border-left-color:var(--fail)}
+.verdict-idle{border-left-color:var(--idle)}
+.banner{border-radius:6px;padding:12px 14px;margin:14px 0;font-size:.94rem;border:1px solid var(--line)}
+.banner-warn{background:var(--warnbg);border-left:5px solid var(--partial)}
+.brand{font-size:.78rem;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.brand .ver{font-weight:500;letter-spacing:.06em}
+.legal{font-size:.82rem}
+nav.toc{border:1px solid var(--line);border-radius:8px;background:var(--card);padding:6px 16px;margin:0 0 24px}
+nav.toc ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:2px 24px}
+nav.toc li{margin:4px 0}
+nav.toc a{display:flex;justify-content:space-between;gap:12px;padding:4px 2px;border-bottom:1px solid transparent}
+nav.toc a:hover{border-bottom-color:currentColor}
+.tcount{color:var(--muted);font-size:.82em;font-variant-numeric:tabular-nums}
+main{counter-reset:section}
+main>section{counter-increment:section;scroll-margin-top:16px}
+main>section>h2::before{content:counter(section) ". ";color:var(--muted);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin:10px 0}
+.legend .lab{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;margin-right:2px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px}
 .card .n{font-size:1.5rem;font-weight:650;line-height:1.2}
@@ -289,7 +357,7 @@ ul.lim{padding-left:20px}ul.lim li{margin:4px 0;font-size:.9rem}
  a[href]:after{content:""}
 }
 @media (prefers-color-scheme:dark){
- :root{--bg:#15181b;--fg:#e9edf1;--muted:#9aa5ae;--line:#2b3238;--card:#1d2226;--ok:#56c288;--partial:#e0a33c;--fail:#ef6b60;--idle:#9aa5ae;--cancel:#b58ad6;--accent:#6ea8e0}
+ :root{--bg:#15181b;--fg:#e9edf1;--muted:#9aa5ae;--line:#2b3238;--card:#1d2226;--ok:#56c288;--partial:#e0a33c;--fail:#ef6b60;--idle:#9aa5ae;--cancel:#b58ad6;--accent:#6ea8e0;--warnbg:#33290f}
  .sev-critical{color:#ff8a7e}
 }
 `;
@@ -299,17 +367,27 @@ export function renderReportHtml(input: Report): string {
   const report = normalizeReport(input);
   const a = report.assessment;
   const inv = report.inventory;
+  const recon = report.reconciliation;
   const t = report.findingTotals;
+  const complete = isComplete(report.reportStatus);
   const title = `ReconNexus assessment report — ${report.rootDomain}`;
 
   const execSummary = [
     `<section id="summary" aria-labelledby="h-summary">`,
     `<h2 id="h-summary">Executive summary</h2>`,
-    `<div class="verdict">`,
-    `<span class="big">${badge(report.reportStatus, statusClass(report.reportStatus))} report status</span>`,
-    `<span class="big">${badge(report.scanStatus, statusClass(report.scanStatus))} analysis status</span>`,
+    `<div class="verdict ${verdictModifier(report.reportStatus)}">`,
+    `<div class="verdict-head">`,
+    `<span class="badge ${statusClass(report.reportStatus)} verdict-badge">${esc(report.reportStatus)}</span>`,
+    `<span class="big">${esc(verdictHeadline(report.reportStatus, t.total))}</span>`,
     `</div>`,
-    `<p>${esc(report.summary)}</p>`,
+    `<p class="verdict-text">${esc(report.summary)}</p>`,
+    `<p class="verdict-sub">analysis ${badge(report.scanStatus, statusClass(report.scanStatus))} · ${esc(report.stages.length)} stages · generated ${esc(report.generatedAt)}</p>`,
+    `</div>`,
+    complete
+      ? ""
+      : `<div class="banner banner-warn" role="note"><strong>Coverage warning.</strong> This assessment did not complete every stage (` +
+        `analysis <code>${esc(report.scanStatus)}</code>). The absence of a result is not evidence of absence — treat untested ` +
+        `dimensions as <em>unknown</em>, not clean.</div>`,
     `<div class="cards">`,
     `<div class="card"><div class="n">${esc(t.total)}</div><div class="l">Findings (candidates)</div></div>`,
     `<div class="card"><div class="n">${esc((t.bySeverity.CRITICAL ?? 0) + (t.bySeverity.HIGH ?? 0))}</div><div class="l">High or critical</div></div>`,
@@ -320,19 +398,18 @@ export function renderReportHtml(input: Report): string {
     `<div class="card"><div class="n">${esc(inv.apis.total)}</div><div class="l">API endpoints</div></div>`,
     `<div class="card"><div class="n">${esc(report.observationCounts.total)}</div><div class="l">Observations</div></div>`,
     `</div>`,
-    `<p class="note">Counts are discovered assets and observations. A finding is a <em>candidate</em> interpreted from
-      evidence: ReconNexus performs no exploitation and verifies no credential, so
-      <strong>${esc(t.validated)}</strong> findings are validated. ${
-        report.reportStatus === "COMPLETE_WITH_FINDINGS" || report.reportStatus === "COMPLETE_NO_FINDINGS"
-          ? "Every stage of this assessment succeeded."
-          : "This assessment did not complete every stage, so the absence of a result is not evidence of absence."
+    `<p class="note">Counts below are discovered assets and observations, not vulnerabilities. A finding is a
+      <em>candidate</em> interpreted from evidence: ReconNexus performs no exploitation and verifies no credential, so
+      <strong>${esc(t.validated)}</strong> finding${t.validated === 1 ? " is" : "s are"} validated. ${
+        complete ? "Every stage of this assessment succeeded." : "See the coverage warning above."
       }</p>`,
     `</section>`,
   ].join("");
 
   const assessmentSection = [
     `<section id="assessment" aria-labelledby="h-assessment">`,
-    `<h2 id="h-assessment">Assessment metadata and scope</h2>`,
+    `<h2 id="h-assessment">Scope &amp; methodology</h2>`,
+    `<p class="note">What was authorized, what limits applied, and when the assessment ran. Only in-scope targets were ever contacted.</p>`,
     `<dl class="meta">`,
     kv("Target", `<code>${esc(report.rootDomain)}</code>`),
     kv("Start URL", `<code>${esc(report.startUrl)}</code>`),
@@ -480,6 +557,16 @@ export function renderReportHtml(input: Report): string {
       inv.apis.rows,
       "No API endpoints were discovered.",
     ),
+    `</details>`,
+    `<details><summary>Endpoint reconciliation</summary>`,
+    `<p class="note">Raw observations → distinct endpoints → rows shown. Per-source counts overlap (an endpoint found by two sources appears in both), so they may sum to more than the distinct total.</p>`,
+    `<dl class="meta">`,
+    kv("Raw endpoint observations", esc(recon.endpointRawObservations ?? 0)),
+    kv("Distinct endpoints", esc(recon.endpointDistinct ?? 0)),
+    kv("Rows shown", esc(recon.endpointShown ?? 0)),
+    kv("By discovery source", list(Object.entries(recon.endpointsBySource ?? {}).map(([k, v]) => `${k || "unknown"}=${v}`))),
+    kv("By provider", list(Object.entries(recon.endpointsByProvider ?? {}).map(([k, v]) => `${k || "unknown"}=${v}`))),
+    `</dl>`,
     `</details>`,
     `<details open><summary>API specifications (${esc(inv.specs.total)})</summary>`,
     sectionMeta(inv.specs),
@@ -664,6 +751,9 @@ export function renderReportHtml(input: Report): string {
   const limitationsSection = [
     `<section id="limitations" aria-labelledby="h-lim">`,
     `<h2 id="h-lim">How to read this report</h2>`,
+    `<div class="legend"><span class="lab">Outcome</span>${badge("SUCCEEDED", "st-ok")}${badge("PARTIAL", "st-partial")}${badge("FAILED", "st-fail")}${badge("SKIPPED", "st-idle")}${badge("CANCELLED", "st-cancel")}</div>`,
+    `<div class="legend"><span class="lab">Severity</span>${badge("CRITICAL", "sev-critical")}${badge("HIGH", "sev-high")}${badge("MEDIUM", "sev-medium")}${badge("LOW", "sev-low")}${badge("INFO", "sev-info")}</div>`,
+    `<p class="note">Severity is impact <em>if</em> the candidate is real; confidence is detector confidence; validation is how far the evidence goes. They are independent.</p>`,
     `<ul class="lim">${report.limitations.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>`,
     `</section>`,
   ].join("");
@@ -683,15 +773,24 @@ export function renderReportHtml(input: Report): string {
 <a class="skip" href="#summary">Skip to the executive summary</a>
 <div class="wrap">
 <header class="top">
-<h1>ReconNexus assessment report</h1>
-<p class="sub"><strong>${esc(report.rootDomain)}</strong> · assessment <code>${esc(report.scanId)}</code> · generated ${esc(report.generatedAt)}</p>
-<p class="sub">Authorized assessment artifact. Handle according to the authorization under which it was produced; it may describe sensitive attack surface.</p>
+<div class="brand">ReconNexus <span class="ver">· assessment report</span></div>
+<h1>${esc(report.rootDomain)}</h1>
+<p class="sub">assessment <code>${esc(report.scanId)}</code> &nbsp; ${badge(report.reportStatus, statusClass(report.reportStatus))} ${badge(report.scanStatus, statusClass(report.scanStatus))} &nbsp; generated ${esc(report.generatedAt)}</p>
+<p class="sub legal">Authorized assessment artifact. Handle according to the authorization under which it was produced; it may describe sensitive attack surface.</p>
 </header>
-<nav aria-label="Report sections"><p class="sub">
-<a href="#summary">Summary</a> · <a href="#assessment">Assessment</a> · <a href="#stages">Stages</a> ·
-<a href="#inventory">Inventory</a> · <a href="#intelligence">Intelligence</a> · <a href="#findings">Findings</a> ·
-<a href="#problems">Errors</a> · <a href="#reproducibility">Reproducibility</a> · <a href="#limitations">How to read this</a>
-</p></nav>
+<nav class="toc" aria-label="Report contents">
+<ol>
+<li><a href="#summary">Executive summary</a></li>
+<li><a href="#assessment">Scope &amp; methodology</a></li>
+<li><a href="#stages">Stage execution &amp; coverage</a></li>
+<li><a href="#inventory">Asset &amp; service inventory</a></li>
+<li><a href="#intelligence">URL / API / JS intelligence</a></li>
+<li><a href="#findings">Findings <span class="tcount">${esc(t.total)}</span></a></li>
+<li><a href="#problems">Errors &amp; incomplete stages <span class="tcount">${esc(report.providerErrors.length + report.incompleteStages.length)}</span></a></li>
+<li><a href="#reproducibility">Reproducibility &amp; evidence</a></li>
+<li><a href="#limitations">How to read this report</a></li>
+</ol>
+</nav>
 <main>
 ${execSummary}
 ${assessmentSection}

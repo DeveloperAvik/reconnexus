@@ -48,21 +48,31 @@ var secretRules = []secretRule{
 	{id: "github-token", category: "API_KEY", confidence: 0.9, high: true, group: 0, re: regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}\b`)},
 	{id: "stripe-secret-key", category: "API_KEY", confidence: 0.9, high: true, group: 0, re: regexp.MustCompile(`\bsk_live_[0-9a-zA-Z]{24,}\b`)},
 	{id: "private-key", category: "PRIVATE_KEY", confidence: 0.95, high: true, group: 0, re: regexp.MustCompile(`-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP |ENCRYPTED )?PRIVATE KEY-----`)},
-	{id: "twilio-api-key", category: "API_KEY", confidence: 0.85, high: true, group: 0, re: regexp.MustCompile(`\bSK[0-9a-fA-F]{32}\b`)},
+	// A bare `SK` + 32 hex is far too generic (it matches hashes and generated ids). Twilio keys are
+	// only reported when a Twilio-ish context token appears nearby.
+	{id: "twilio-api-key", category: "API_KEY", confidence: 0.85, high: true, group: 1, re: regexp.MustCompile(`(?i)(?:twilio|account[_-]?sid|auth[_-]?token|api[_-]?key)[^\n]{0,40}?\b(SK[0-9a-fA-F]{32})\b`)},
 	{id: "sendgrid-api-key", category: "API_KEY", confidence: 0.9, high: true, group: 0, re: regexp.MustCompile(`\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b`)},
 	{id: "npm-token", category: "API_KEY", confidence: 0.9, high: true, group: 0, re: regexp.MustCompile(`\bnpm_[A-Za-z0-9]{36}\b`)},
 	{id: "azure-storage-account-key", category: "CLOUD_CREDENTIAL", confidence: 0.9, high: true, group: 1, re: regexp.MustCompile(`(?i)AccountKey=([A-Za-z0-9+/=]{88})`)},
 	{id: "database-connection-string", category: "DATABASE_URL", confidence: 0.9, high: true, group: 0, re: regexp.MustCompile(`(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^\s'"]*:[^\s'"@]+@[^\s'"]+`)},
-	{id: "oauth-client-secret", category: "OAUTH_SECRET", confidence: 0.85, high: true, group: 1, re: regexp.MustCompile(`(?i)(?:client[_-]?secret|oauth[_-]?secret)\s*[:=]\s*['"]([A-Za-z0-9_\-]{16,})['"]`)},
-	{id: "webhook-signing-secret", category: "WEBHOOK_SECRET", confidence: 0.8, high: true, group: 1, re: regexp.MustCompile(`(?i)(?:whsec_|webhook[_-]?secret|signing[_-]?secret)\s*[:=]?\s*['"]?([A-Za-z0-9_\-]{16,})`)},
+	// Assignment keywords are common in configuration/UI code; require the value to look random.
+	{id: "oauth-client-secret", category: "OAUTH_SECRET", confidence: 0.85, high: true, group: 1, entropy: true, minEntropy: 3.5, re: regexp.MustCompile(`(?i)(?:client[_-]?secret|oauth[_-]?secret)\s*[:=]\s*['"]([A-Za-z0-9_\-]{16,})['"]`)},
+	{id: "webhook-signing-secret", category: "WEBHOOK_SECRET", confidence: 0.8, high: true, group: 1, entropy: true, minEntropy: 3.5, re: regexp.MustCompile(`(?i)(?:whsec_|webhook[_-]?secret|signing[_-]?secret)\s*[:=]?\s*['"]?([A-Za-z0-9_\-]{16,})`)},
 	{id: "embedded-credentials", category: "PASSWORD", confidence: 0.6, high: false, group: 0, re: regexp.MustCompile(`\bhttps?://[^/\s:@'"]+:[^/\s:@'"]+@`)},
-	{id: "password-assignment", category: "PASSWORD", confidence: 0.5, high: false, group: 1, re: regexp.MustCompile(`(?i)(?:password|passwd|pwd)\s*[:=]\s*['"]([^'"\s]{6,})['"]`)},
-	{id: "jwt-token", category: "BEARER_TOKEN", confidence: 0.7, high: false, group: 0, re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
-	{id: "bearer-token", category: "BEARER_TOKEN", confidence: 0.6, high: false, group: 1, re: regexp.MustCompile(`(?i)bearer\s+([A-Za-z0-9._\-]{20,})`)},
+	{id: "password-assignment", category: "PASSWORD", confidence: 0.5, high: false, group: 1, entropy: true, minEntropy: 3.5, re: regexp.MustCompile(`(?i)(?:password|passwd|pwd)\s*[:=]\s*['"]([^'"\s]{6,})['"]`)},
+	{id: "jwt-token", category: "BEARER_TOKEN", confidence: 0.7, high: false, group: 0, entropy: true, minEntropy: 3.5, re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
+	{id: "bearer-token", category: "BEARER_TOKEN", confidence: 0.6, high: false, group: 1, entropy: true, minEntropy: 3.5, re: regexp.MustCompile(`(?i)bearer\s+([A-Za-z0-9._\-]{20,})`)},
 	{id: "generic-high-entropy", category: "GENERIC_HIGH_ENTROPY", confidence: 0.5, high: false, group: 1, entropy: true, minEntropy: 3.5, re: regexp.MustCompile(`(?i)(?:api[_-]?key|apikey|access[_-]?key|secret[_-]?key|token)\s*[:=]\s*['"]([A-Za-z0-9_\-]{20,64})['"]`)},
 }
 
-var placeholderTokens = []string{"example", "placeholder", "changeme", "change_me", "dummy", "your_", "your-", "xxxxxx", "aaaaaa", "<", "${", "{{", "redacted", "fake"}
+// placeholderTokens suppress obvious non-secrets. Words here appear in UI/config strings that a
+// generic assignment rule would otherwise flag (e.g. `password = 'required'`), so they are treated
+// as placeholders rather than candidates.
+var placeholderTokens = []string{
+	"example", "placeholder", "changeme", "change_me", "dummy", "your_", "your-", "xxxxxx", "aaaaaa",
+	"<", "${", "{{", "redacted", "fake",
+	"required", "invalid", "undefined", "sample", "todo", "lorem", "password",
+}
 
 const (
 	maxSecretMatchesPerRule = 200
@@ -218,7 +228,10 @@ func scanText(content, artifactURL, host string, key []byte, suppressed map[stri
 			}
 			start, end := m[2*g], m[2*g+1]
 			value := content[start:end]
-			if rule.entropy && shannon(value) < rule.minEntropy {
+			// Placeholders are retained so the suppression is observable. For everything else, the
+			// entropy gate drops low-entropy values (config flags, form-validation strings) that a
+			// weak assignment rule would otherwise report as false positives.
+			if rule.entropy && !isPlaceholder(value) && shannon(value) < rule.minEntropy {
 				continue
 			}
 			// Suppress generic matches that overlap an already-kept (more specific) match.

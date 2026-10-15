@@ -407,6 +407,32 @@ reporting.
 - [ ] Failure-injection, DNS-rebinding, rebind/redirect fuzz, benchmark suite.
 - [ ] Compatibility matrix, docs review, release gate verification.
 
+## Correctness pass — status, endpoint accounting, JS classification ✅ DONE (2026-10-15)
+
+Verified against an existing generated report (`5b1edc77…html`) that showed all four symptoms.
+
+- [x] **Report status vs findings.** `buildReport` counted correlations into the value passed to
+      `deriveReportStatus`, producing `COMPLETE_WITH_FINDINGS` with zero findings. Now driven by
+      `buildFindings(...).length`, so status, headline and `findingTotals` agree.
+- [x] **Provider `PARTIAL` masking.** `aggregate()` returned `SUCCEEDED` when no provider hard-failed,
+      hiding a `PARTIAL` provider. Now any non-all-success mix with a success/partial is `PARTIAL`.
+- [x] **JS stage content selection.** Stage 07 no longer selects `STATIC_ASSET` (images/CSS/fonts);
+      the worker additionally rejects HTML/binary content as `SKIPPED` with a rationale.
+- [x] **API endpoint accounting.** Distinct `method origin path` identities are counted; raw
+      observation and per-source/per-provider breakdowns are exposed as `reconciliation`.
+- [x] **Zero-result diagnostics.** External providers record why a run parsed zero records.
+- [x] Regression tests (TS + Go); `npm run typecheck`, `npm test` (247), `go test ./...` all pass.
+
+### Known gaps (this pass)
+
+- [ ] Extensionless JavaScript endpoints referenced only by `<script src>` are not yet discovered
+      (URL collection does not parse script tags), so stage 07 still relies on `.js`/classification.
+- [ ] Security-metadata findings remain inventory-only; no finding type is derived for
+      `NOT_OBSERVED` headers (by design), so "0 findings" is expected for header-only scans.
+- [ ] The status vocabulary still maps onto `JobStatus`/`coverageStatus`/`reportStatus` rather than a
+      single dedicated scan-lifecycle enum; the three dimensions are reported separately but are not
+      unified in one type.
+
 ---
 
 ## Definition of Done traceability

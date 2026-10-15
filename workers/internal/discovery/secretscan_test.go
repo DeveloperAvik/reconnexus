@@ -54,11 +54,11 @@ func findSecret(res Result, ruleID string) *SecretCandidateInfo {
 
 // The synthetic secrets below are fixtures only and are never real credentials.
 const (
-	rawAWSKey   = "AKIAABCDEFGHIJKLMNOP"
-	rawDBURL    = "postgres://admin:S3cr3tP4ss@db.internal:5432/app"
-	rawJWT      = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c"
-	rawGeneric  = "Xy9Kq2Lm7Pz4Rt6Wv8Bn0Cd3Ef5Gh1"
-	rawKeyBody  = "MIIEowIBAAKCAQEA" // start of a fake private-key body
+	rawAWSKey  = "AKIAABCDEFGHIJKLMNOP"
+	rawDBURL   = "postgres://admin:S3cr3tP4ss@db.internal:5432/app"
+	rawJWT     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJVadQssw5c"
+	rawGeneric = "Xy9Kq2Lm7Pz4Rt6Wv8Bn0Cd3Ef5Gh1"
+	rawKeyBody = "MIIEowIBAAKCAQEA" // start of a fake private-key body
 )
 
 func jsWithSecrets() string {
@@ -69,6 +69,47 @@ func jsWithSecrets() string {
 		"const jwt='" + rawJWT + "';\n" +
 		"const cfg={password:'your_password_here'};\n" +
 		"const gen={token:'" + rawGeneric + "'};\n"
+}
+
+// activeSecretRules returns the non-suppressed rule ids scanText reports for a blob.
+func activeSecretRules(text string) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range scanText(text, "https://example.com/a.js", "example.com", nil, nil) {
+		if r.Type == TypeSecretCandidate && r.Secret != nil && r.Secret.Status != SecretSuppressed {
+			out[r.Secret.RuleID] = true
+		}
+	}
+	return out
+}
+
+// Regression: the weak assignment/entropy rules must not flag ordinary values that appear in
+// minified JavaScript (ids, form-validation strings, repeated characters).
+func TestSecretScanDoesNotFlagBenignValues(t *testing.T) {
+	benign := map[string]string{
+		"bare SK hash without context": "const id='SK0123456789abcdef0123456789abcdef';",
+		"low-entropy password":         "const cfg={password:'required'};",
+		"numeric password":             "const cfg={password:'123456789'};",
+		"repeated-char bearer":         "req.setHeader('Authorization','Bearer aaaaaaaaaaaaaaaaaaaaaaaa');",
+		"placeholder client secret":    "const o={client_secret:'xxxxxxxxxxxxxxxx'};",
+		"repeated-char webhook":        "const w={signing_secret:'aaaaaaaaaaaaaaaaaaaa'};",
+		"example embedded creds":       "const u='https://user:password@example.com/';",
+	}
+	for name, text := range benign {
+		if got := activeSecretRules(text); len(got) != 0 {
+			t.Errorf("%s: expected no finding, got %v", name, keysOfBool(got))
+		}
+	}
+}
+
+// Regression: a Twilio key IS still detected when a Twilio-ish context token is present.
+func TestSecretScanTwilioRequiresContext(t *testing.T) {
+	key := "SK0123456789abcdef0123456789abcdef"
+	if got := activeSecretRules("const auth_token = '" + key + "';"); !got["twilio-api-key"] {
+		t.Errorf("expected twilio-api-key with context, got %v", keysOfBool(got))
+	}
+	if got := activeSecretRules("const id = '" + key + "';"); got["twilio-api-key"] {
+		t.Errorf("bare SK value without context must not be flagged: %v", keysOfBool(got))
+	}
 }
 
 func TestSecretScanDetectsAndRedacts(t *testing.T) {
@@ -165,7 +206,7 @@ func TestSecretScanNoKeyNoFingerprint(t *testing.T) {
 
 func TestSecretScanOversized(t *testing.T) {
 	t.Setenv("RECONNEXUS_HMAC_KEY", "k")
-	big := "const x='"+rawAWSKey+"';\n" + strings.Repeat("// padding\n", 5000)
+	big := "const x='" + rawAWSKey + "';\n" + strings.Repeat("// padding\n", 5000)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, big) }))
 	defer srv.Close()
 	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
@@ -183,7 +224,7 @@ func TestSecretScanOversized(t *testing.T) {
 
 func TestSecretScanUnicodeAndMalformed(t *testing.T) {
 	t.Setenv("RECONNEXUS_HMAC_KEY", "k")
-	payload := []byte("const s='"+rawAWSKey+"';\xff\xfe\x00garbage\xc3\x28")
+	payload := []byte("const s='" + rawAWSKey + "';\xff\xfe\x00garbage\xc3\x28")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(payload) }))
 	defer srv.Close()
 	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})

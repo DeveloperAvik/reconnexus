@@ -132,6 +132,41 @@ func TestDNSToPrivateAddressBlocked(t *testing.T) {
 	}
 }
 
+func TestIPv6RestrictedAddressesBlocked(t *testing.T) {
+	cases := []struct {
+		name string
+		ip   string
+	}{
+		{"ipv6 loopback", "::1"},
+		{"ipv6 link-local", "fe80::1"},
+		{"ipv6 unique-local", "fd00::1"},
+		{"ipv6 documentation/reserved", "2001:db8::1"},
+		{"ipv4-mapped private", "::ffff:10.0.0.1"},
+		{"ipv4-mapped link-local", "::ffff:169.254.1.1"},
+	}
+	e := NewEngine(basePolicy())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := check(t, e, Request{Kind: "IP", Value: tc.ip, Capability: "ACTIVE_HTTP"})
+			if d.Allowed {
+				t.Fatalf("expected %s to be denied, got allow", tc.ip)
+			}
+			if d.Code != CodeRestrictedAddress {
+				t.Fatalf("expected RESTRICTED_ADDRESS_SPACE for %s, got %+v", tc.ip, d)
+			}
+		})
+	}
+}
+
+func TestIPv6HostLiteralScope(t *testing.T) {
+	// An IPv6 literal host outside the authorized IP set is not in scope.
+	e := NewEngine(basePolicy())
+	d := check(t, e, Request{Kind: "URL", Value: "http://[2001:db8::1]/", Capability: "ACTIVE_HTTP"})
+	if d.Allowed {
+		t.Fatalf("expected out-of-scope IPv6 literal to be denied, got allow")
+	}
+}
+
 func TestExplicitlyAuthorizedIPAllowed(t *testing.T) {
 	e := NewEngine(basePolicy())
 	// 203.0.113.10 is an in-scope IP; it is documentation/reserved but explicitly authorized.

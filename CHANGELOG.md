@@ -4,6 +4,216 @@ All notable changes are documented here. This project distinguishes implemented 
 planned functionality; entries only describe what is actually implemented and tested.
 
 
+## [0.19.1] — Reduce subdomain-takeover and JS secret false positives
+
+### Fixed
+
+- **Subdomain takeover: a matching HTTP status alone is no longer a candidate.** A plain 404/403 on a
+  CNAME to a shared service (CloudFront, Traffic Manager, Statuspage, …) was reported `CANDIDATE`
+  because the status matched, even with no service-specific unclaimed marker — the main
+  false-positive source. Status-only responses are now `INCONCLUSIVE` (`evidenceType: STATUS_ONLY`).
+  Only a service-specific unclaimed marker raises `SUSPECTED`.
+- **Generic takeover markers removed.** "bad request", "not found", "page not found", "doesn't
+  exist" and similar strings appear on ordinary error pages; they were dropped from the fingerprint
+  set so a claimed resource is not flagged.
+- **Non-actionable takeovers are no longer findings.** `NOT_VULNERABLE` and `INCONCLUSIVE` takeover
+  records stay in the `takeoverCandidates` inventory but are excluded from the report's findings, so
+  "not vulnerable" no longer inflates the finding count.
+- **JS secret detection: weak assignment rules now require entropy.** `password-assignment`,
+  `bearer-token`, `oauth-client-secret`, `webhook-signing-secret` and `jwt-token` require Shannon
+  entropy ≥ 3.5, dropping config/UI values (`password = 'required'`, repeated characters) that
+  produced false positives in minified JavaScript. Placeholder suppression still runs first so
+  suppressed values remain observable.
+- **Twilio API key requires context.** The bare `SK` + 32-hex pattern matched hashes and generated
+  ids; it now requires a nearby `twilio`/`account_sid`/`auth_token`/`api_key` token.
+
+### Tests
+
+- Go: status-only → `INCONCLUSIVE`; generic markers no longer suspected; benign-value secret
+  non-detection; Twilio context requirement; expanded evaluation corpus with bare-`SK`,
+  low-entropy-password and repeated-bearer negatives.
+- TypeScript: `buildFindings` excludes non-actionable takeovers.
+- Totals: TypeScript 263 tests across 56 files; Go all packages; typecheck clean.
+
+## [0.19.0] — Phase 2 deep audit: script-reference discovery, CVE-intel fix, failure injection
+
+### Added
+
+- **HTML `<script src>` reference discovery.** The crawler now extracts script references from
+  in-scope HTML documents (resolving relative, root-relative, protocol-relative and query-bearing
+  URLs against the *effective* post-redirect document URL), marks them `scriptRef` with the parent
+  document URL, and feeds extensionless JavaScript (bundler output such as `/assets/bundle`) into
+  Stage 07. Inline script text is never treated as a URL; non-script assets referenced from a script
+  tag are not relabelled. Script/static URLs are recorded in the inventory but no longer consume the
+  crawl request budget. New `UrlObservationRecord` fields `scriptRef`/`parentUrl`.
+- **Conservative security-metadata finding.** A single, strictly-gated rule: an HTTPS response that
+  sets a cookie without the `Secure` attribute yields a LOW/`SUSPECTED` candidate scoped to that
+  endpoint. Missing headers and CORS wildcards deliberately remain inventory.
+- **Benchmarks** for the new Go script-reference scan (`BenchmarkExtractScriptRefs`).
+
+### Fixed
+
+- **CVE intelligence silently dropped ambiguous products.** An ambiguous product mapping (multiple
+  plausible CPEs) has no CPE to query, so a source that returns no advisories (e.g. the NVD path)
+  never produced a match entry — the ambiguity disappeared and implied the product was clean.
+  Ambiguous products are now surfaced in `coverage.ambiguousProducts`, counted as `NEEDS_APPLICABILITY_REVIEW`,
+  and called out in the limitations.
+
+### Tests
+
+- Go: script-reference resolution/filtering, crawler provenance + dedup + off-scope skip + inline
+  rejection, effective-URL resolution across redirects; HTTP redirect-loop bound; partial-output-
+  then-nonzero-exit is FAILED and not partially ingested; IPv6 restricted-address scope denials.
+- TypeScript: script-ref → Stage 07 selection; comparison determinism, failed-current-scan and
+  missing-coverage handling; CVE ambiguity regression; report finalization idempotency +
+  stale-coverage; insecure-cookie finding false-positive/negative guards.
+- Totals: TypeScript 262 tests across 56 files; Go all packages; typecheck clean.
+
+## [0.18.0] — Assessment-status, endpoint-accounting and JS-classification correctness
+
+### Fixed
+
+- **Report status no longer contradicts the findings section.** `buildReport` passed
+  `secretFindings + correlations + actionableTakeovers` to `deriveReportStatus`, while the findings
+  section and `findingTotals` were derived from `buildFindings`. A scan with correlations but no
+  findings (observed: `COMPLETE_WITH_FINDINGS`, "0 candidate findings", body text "assessment is
+  incomplete") is now `COMPLETE_NO_FINDINGS` and renders consistently in human/JSON/HTML.
+- **Provider `PARTIAL` outcomes now propagate to the stage, coverage and scan status.**
+  `aggregate()` returned `SUCCEEDED` whenever no provider had hard-failed, so a lone `PARTIAL`
+  provider (or a mix of `SUCCEEDED` + `PARTIAL`) was masked. It now returns `PARTIAL`, so a stage
+  whose provider only partially completed is never reported `SUCCEEDED` and the assessment is not
+  `SUCCEEDED`.
+- **Non-script assets are never fed to JavaScript analysis.** Stage 07 selected URLs classified
+  `STATIC_ASSET` (images, CSS, fonts, video) as well as `JAVASCRIPT`, which made the worker fetch and
+  "analyse" a WordPress `.jpg`. Selection is now `JAVASCRIPT`/script-extension only, and the worker
+  independently rejects HTML and binary/asset content types (with magic-byte sniffing) as
+  `SKIPPED`, recording the classification rationale instead of parsing binary data.
+
+### Added
+
+- **API endpoint reconciliation.** `listApiEndpoints` now returns distinct `method origin path`
+  identities (a documented observation is preferred for the shared row), and the report exposes
+  `reconciliation` (`raw observations → distinct endpoints → rows shown`, plus per-source and
+  per-provider breakdowns). This explains the observed "942 API endpoints vs 9 provider records"
+  gap: the card counted every `api-endpoint` observation across the JS and API-spec stages, while
+  the provider count was per-provider per-stage.
+- **Zero-result diagnostics for external providers.** A successful run that parses zero records now
+  records why ("no output" vs "output present but did not parse") without changing the
+  `SUCCEEDED` status, so an empty result is distinguishable from a failure.
+
+### Tests
+
+- New: `test/unit/orchestrator-aggregate.test.ts`, `test/integration/provider-partial.test.ts`,
+  `test/integration/report-status-consistency.test.ts`,
+  `test/integration/api-endpoint-reconciliation.test.ts`, and the Go
+  `TestJsAnalysisRejectsNonScriptContent`. TypeScript: 247 tests across 52 files; Go: all packages.
+
+## [0.17.0] — Vulnerability intelligence: technology → CVE candidates
+
+### Added
+
+- **CVE-intelligence module** (`apps/control-plane/src/intelligence/`): deterministic version parsing
+  and range evaluation (`version.ts`), technology→product/version normalization with CPE mapping
+  (`products.ts`), injectable sources (`source.ts`) and the correlation engine (`engine.ts`).
+- **`vulns <scanId>`** CLI: correlates the scan's observed technologies with CVE advisories and prints
+  a human or `json` report. Sources: `--advisories <file.json>` (offline local database) or
+  `--online` (NVD 2.0 API, optional `NVD_API_KEY`), with `--kev <file>` to mark CISA KEV membership.
+  Filters `--product` and `--state`.
+- **Applicability states** — `MATCH_CANDIDATE`, `NEEDS_VERSION_CONFIRMATION`,
+  `NEEDS_APPLICABILITY_REVIEW`, `VALIDATED`, `NOT_APPLICABLE`, `INCONCLUSIVE`, `SOURCE_UNAVAILABLE` —
+  each with one meaning and never silently converted. **`VALIDATED` is never set automatically.**
+- **Version certainty** — `EXACT` / `INFERRED` / `RANGE` / `UNKNOWN`, computed from persisted
+  technology evidence; conflicting banners become a bounded `RANGE`.
+- **Graceful source handling** — a TTL cache (`CachingVulnerabilitySource`) serves a stale entry,
+  clearly flagged, when the upstream fails; a hard outage yields `SOURCE_UNAVAILABLE`, never a false
+  negative. Sources, freshness and unmatched products are surfaced in coverage and limitations.
+
+### Design
+
+- CPE mapping is conservative: an ambiguous product (multiple plausible CPEs) is reported as
+  `NEEDS_APPLICABILITY_REVIEW`, an unmapped product is listed as unmatched — never guessed.
+- Affected ranges come from the source (NVD `versionStart/End`), evaluated with correct version
+  ordering; a vendor backport note forces applicability review.
+- Evidence is version-accurate: a host whose banner carried no version is **not** cited as a matched
+  host.
+- No schema migration and nothing persisted: the report is computed on demand from existing
+  technology observations.
+
+### Tests
+
+- TypeScript: 238 tests across 48 files. New: `test/unit/vuln-version.test.ts` (ordering, ranges,
+  wildcards, unparseable input), `test/unit/vuln-intel.test.ts` (12 engine scenarios incl.
+  out-of-range, ambiguity, conflicting banners, backport, KEV, dedup, missing version, persistence
+  round-trip) and `test/unit/vuln-source.test.ts` (NVD parsing with a mocked `fetch`, retry on 429,
+  timeout→`SOURCE_UNAVAILABLE`, KEV parsing, cache TTL and stale-on-error).
+
+### Docs
+
+- `docs/architecture/vulnerability-intelligence.md`; README capability table + quick start.
+
+## [0.16.0] — Professional, easier-to-read HTML report
+
+### Improved
+
+- **Headline verdict panel.** The executive summary now leads with a colour-coded verdict
+  (`verdict-clean` / `-findings` / `-warn` / `-bad`) and a plain-language one-line conclusion
+  ("Assessment complete — N candidate findings", "Assessment partial — results are incomplete",
+  …) so the outcome is readable at a glance.
+- **Prominent coverage warning.** When the assessment did not complete every stage, a highlighted
+  banner states that absence of a result is not evidence of absence, instead of burying it in a note.
+- **Header and table of contents.** The document opens with the target as the title, report/analysis
+  status badges and generation time, followed by a bordered contents panel (§1–§9) with live counts
+  for Findings and Errors. Sections are auto-numbered via CSS counters.
+- **Reading legend.** The "How to read this report" section now includes a legend of outcome badges
+  and severity badges, plus the existing limitations.
+- **Scope section intro** explaining what the section establishes.
+
+### Unchanged (safety invariants preserved)
+
+- Still a single self-contained document: no `<script>`, no external references, no inline event
+  handlers, and **no inline styles** except the confidence-bar width. Every model value is escaped;
+  URLs remain text, never `href`. The 19-report safety suite (`test/unit/report-html.test.ts`) passes
+  unchanged.
+
+## [0.15.0] — Reliable scan-to-scan change intelligence (Phase E)
+
+### Added
+
+- **`changes <baselineScanId> <currentScanId>`** — read-only, evidence-backed comparison across
+  `assets`, `dns`, `http`, `tls`, `technology`, `api`, `js` and `findings` records, with filters
+  (`--category`, `--status`) and a per-category `--limit` (totals stay exact). Outputs `human`,
+  `json` (full structured model) and a self-contained `html` report. The engine is
+  `apps/control-plane/src/comparison/engine.ts`; the CLI is `apps/cli/src/commands/changes.ts`.
+- **Explicit comparison outcomes** `ADDED | REMOVED | CHANGED | UNCHANGED | UNKNOWN`. A verdict is
+  only `REMOVED`/`CHANGED` when the stage that produces the category was fully `COLLECTED` in **both**
+  scans; otherwise the item is `UNKNOWN` with the reason and the category reports a `COVERAGE_GAP`
+  limitation. A skipped/failed/partial/blocked stage is therefore never treated as absence.
+- **`Repository.listScanObservations(scanId, { kinds?, kindPrefix? })`** — the read-only, indexed
+  query that backs the engine (assets are project-scoped, so "seen in a scan" means the subject of an
+  observation with that `scan_id`). No migration: the existing `observations`/`coverage_records`
+  schema fully supports the comparison.
+
+### Correctness
+
+- Comparison categories use stable, per-kind identities (DNS by name+record type, HTTP by service
+  origin, TLS by certificate hash, API by method+origin+path, JS by URL, findings by
+  rule/artifact/location/fingerprint or host+CNAME). Duplicate observations are collapsed
+  deterministically (latest `observed_at`, then a stable tie-break). Output ordering is
+  deterministic (outcome group, then key). Provenance (`source`, `observed_at`) is preserved on both
+  sides. The engine performs no network requests and writes nothing.
+
+### Tests
+
+- TypeScript: 212 tests across 45 files. New: `test/unit/comparison-engine.test.ts` (10 scenarios:
+  coverage-gated removal, DNS change vs DNS failure, HTTP/TLS change, JS hash + API route change,
+  finding resolution/regression, dedup, `--limit`, missing/cross-project, filtering),
+  `test/unit/changes-cli.test.ts` (HTML escaping + human rendering) and
+  `test/integration/changes.test.ts` (two real scans: DNS value change, unchanged asset).
+
+### Docs
+
+- `README.md` (capability table + quick start) and `docs/architecture/comparison.md` added.
+
 ## [0.14.0] — Professional CLI console and HTML reporting
 
 ### Added
@@ -25,6 +235,12 @@ planned functionality; entries only describe what is actually implemented and te
   a secret.
 - **`report --out <path>`** writes any format to a file (mode `0600`) instead of stdout, and
   **`--max-rows <n>`** bounds rows per inventory section while totals stay exact.
+- **`assets diff <baselineScanId> <currentScanId>`** — read-only comparison of the assets observed
+  in two scans of the same project (`--type`, `--limit`), reporting added / removed / unchanged by
+  asset identity (type + canonical key) with deterministic ordering. It is explicitly an
+  observation-set comparison: a stage skipped in either scan is not treated as evidence of absence.
+  Backed by `Repository.listScanAssets(scanId, types?)` (assets are project-scoped, so "observed in
+  a scan" means the subject of an observation with that `scan_id`).
 
 ### Fixed
 

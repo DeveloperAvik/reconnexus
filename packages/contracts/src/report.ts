@@ -332,6 +332,23 @@ export const ReportReproducibilitySchema = z
 export type ReportReproducibility = z.infer<typeof ReportReproducibilitySchema>;
 
 /** A content-addressed evidence artifact. The appendix lists references, never contents. */
+/**
+ * Coverage reconciliation: every headline aggregate is paired with the raw count it was derived
+ * from, so `raw observations → distinct/normalized records → rows shown` is auditable. Endpoint
+ * source counts are per discovery source (JS, SPEC, HTTP); an endpoint found by more than one
+ * source is counted in each, so they may sum to more than the distinct total.
+ */
+export const ReportReconciliationSchema = z
+  .object({
+    endpointRawObservations: z.number().int().nonnegative().default(0),
+    endpointDistinct: z.number().int().nonnegative().default(0),
+    endpointShown: z.number().int().nonnegative().default(0),
+    endpointsBySource: z.record(z.string(), z.number().int().nonnegative()).default({}),
+    endpointsByProvider: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  })
+  .default({});
+export type ReportReconciliation = z.infer<typeof ReportReconciliationSchema>;
+
 export const ReportEvidenceRefSchema = z.object({
   sha256: z.string().default(""),
   storageUri: z.string().default(""),
@@ -363,6 +380,7 @@ export const ReportSchema = z.object({
     byKind: z.record(z.string(), z.number().int().nonnegative()),
     bySource: z.record(z.string(), z.number().int().nonnegative()),
   }),
+  reconciliation: ReportReconciliationSchema,
   inventory: ReportInventorySchema,
   findings: z.array(ReportFindingSchema).default([]),
   findingTotals: ReportFindingTotalsSchema.default({}),

@@ -17,8 +17,9 @@ import {
   scanStatusCommand,
 } from "./commands/scan.js";
 import { coverageCommand } from "./commands/coverage.js";
-import { assetsListCommand } from "./commands/assets.js";
+import { assetsDiffCommand, assetsListCommand } from "./commands/assets.js";
 import { httpCommand, technologiesCommand } from "./commands/http.js";
+import { vulnsCommand } from "./commands/vulns.js";
 import { paramsCommand, urlsListCommand } from "./commands/urls.js";
 import { apisCommand, jsCommand, specsCommand } from "./commands/js.js";
 import { securityCommand } from "./commands/security.js";
@@ -26,6 +27,7 @@ import { secretsCommand } from "./commands/secrets.js";
 import { correlationsCommand } from "./commands/correlations.js";
 import { reportCommand } from "./commands/report.js";
 import { takeoverCommand } from "./commands/takeover.js";
+import { changesCommand } from "./commands/changes.js";
 import { notImplementedCommand } from "./commands/stubs.js";
 
 function applyColorMode(program: Command): void {
@@ -291,6 +293,19 @@ function buildProgram(): Command {
         }),
       ),
     );
+  assets
+    .command("diff <baselineScanId> <currentScanId>")
+    .description("compare the assets observed in two scans of the same project")
+    .option("--type <types>", "comma-separated asset types to compare")
+    .option("--limit <n>", "maximum added/removed rows to show per side", (v: string) => Number(v))
+    .action((baseline: string, current: string, opts) =>
+      run("assets diff", program, (ctx) =>
+        assetsDiffCommand(ctx, baseline, current, {
+          ...(opts.type ? { type: opts.type } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
 
   // http probing / fingerprinting
   program
@@ -301,6 +316,29 @@ function buildProgram(): Command {
     .command("technologies <scanId>")
     .description("list technology observations with supporting evidence")
     .action((id: string) => run("technologies", program, (ctx) => technologiesCommand(ctx, id)));
+  program
+    .command("vulns <scanId>")
+    .description("correlate observed technologies with CVE advisories (candidates, never confirmed)")
+    .option("--product <substr>", "filter by product or CVE id substring")
+    .option("--state <list>", "comma-separated applicability states to show")
+    .option("--advisories <file>", "offline advisory database (JSON array) to match against")
+    .option("--kev <file>", "CISA KEV catalog JSON to mark known-exploited CVEs")
+    .option("--online", "query the NVD API (network) instead of a local database")
+    .option("--max-products <n>", "maximum distinct products to look up", (v: string) => Number(v))
+    .addOption(new Option("--format <format>", "output format").choices(["human", "json"]))
+    .action((id: string, opts) =>
+      run("vulns", program, (ctx) =>
+        vulnsCommand(ctx, id, {
+          ...(opts.product ? { product: opts.product } : {}),
+          ...(opts.state ? { state: opts.state } : {}),
+          ...(opts.advisories ? { advisories: opts.advisories } : {}),
+          ...(opts.kev ? { kev: opts.kev } : {}),
+          ...(opts.online ? { online: true } : {}),
+          ...(opts.maxProducts !== undefined ? { maxProducts: opts.maxProducts } : {}),
+          ...(opts.format ? { format: opts.format } : {}),
+        }),
+      ),
+    );
 
   // URL intelligence
   program
@@ -444,6 +482,25 @@ function buildProgram(): Command {
           ...(opts.service ? { service: opts.service } : {}),
           ...(opts.host ? { host: opts.host } : {}),
           ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Scan-to-scan change intelligence
+  program
+    .command("changes <baselineScanId> <currentScanId>")
+    .description("compare two scans: assets, DNS, HTTP/TLS, technology, API, JS and findings (read-only)")
+    .option("--category <list>", "comma-separated categories (assets,dns,http,tls,technology,api,js,findings)")
+    .option("--status <list>", "comma-separated outcomes (ADDED,REMOVED,CHANGED,UNCHANGED,UNKNOWN)")
+    .option("--limit <n>", "maximum change rows per category (totals stay exact)", (v: string) => Number(v))
+    .addOption(new Option("--format <format>", "output format").choices(["human", "json", "html"]))
+    .action((baseline: string, current: string, opts) =>
+      run("changes", program, (ctx) =>
+        changesCommand(ctx, baseline, current, {
+          ...(opts.category ? { category: opts.category } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+          ...(opts.format ? { format: opts.format } : {}),
         }),
       ),
     );

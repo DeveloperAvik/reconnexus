@@ -34,13 +34,19 @@ type takeoverFingerprint struct {
 	statusCodes []int
 }
 
+// Markers must be service-specific. Generic strings such as "not found", "bad request" or
+// "doesn't exist" appear on ordinary error pages and were the main source of false positives, so
+// they were removed: a service with only a generic string now needs the marker absent and yields
+// INCONCLUSIVE from the status code, never a candidate.
 var takeoverFingerprints = []takeoverFingerprint{
 	{"GitHub Pages", []string{"github.io"}, []string{"there isn't a github pages site here"}, []int{404}},
 	{"Heroku", []string{"herokuapp.com", "herokussl.com"}, []string{"no such app"}, []int{404}},
 	{"Amazon S3", []string{"s3.amazonaws.com", "s3-website-us-east-1.amazonaws.com", "s3-website.eu-west-1.amazonaws.com", "s3-website-us-west-2.amazonaws.com"}, []string{"nosuchbucket", "the specified bucket does not exist"}, []int{404, 403}},
-	{"Amazon CloudFront", []string{"cloudfront.net"}, []string{"bad request", "the request could not be satisfied"}, []int{403, 404}},
+	{"Amazon CloudFront", []string{"cloudfront.net"}, []string{"the request could not be satisfied"}, []int{403, 404}},
 	{"Azure App Service", []string{"azurewebsites.net"}, []string{"error 404 - web app not found", "web app not found"}, []int{404}},
-	{"Azure Traffic Manager", []string{"trafficmanager.net"}, []string{"not found"}, []int{404}},
+	// Azure Traffic Manager has no reliable service-specific unclaimed marker, so it can only ever
+	// be INCONCLUSIVE from a matching status, never a candidate.
+	{"Azure Traffic Manager", []string{"trafficmanager.net"}, nil, []int{404}},
 	{"Azure Blob Storage", []string{"blob.core.windows.net", "web.core.windows.net"}, []string{"the specified container does not exist", "blobnotfound"}, []int{404}},
 	{"Fastly", []string{"fastly.net", "fastlylb.net", "global.ssl.fastly.net"}, []string{"fastly error: unknown domain"}, []int{404, 500, 503}},
 	{"Netlify", []string{"netlify.app", "netlify.com"}, []string{"not found - request id"}, []int{404}},
@@ -51,10 +57,10 @@ var takeoverFingerprints = []takeoverFingerprint{
 	{"Shopify", []string{"myshopify.com"}, []string{"sorry, this shop is currently unavailable"}, []int{404}},
 	{"Tumblr", []string{"tumblr.com"}, []string{"there's nothing here", "there isn’t a blog here"}, []int{404}},
 	{"Zendesk", []string{"zendesk.com"}, []string{"help center closed"}, []int{404}},
-	{"Ghost", []string{"ghost.io"}, []string{"domain not configured", "doesn't exist"}, []int{404}},
+	{"Ghost", []string{"ghost.io"}, []string{"domain not configured"}, []int{404}},
 	{"UserVoice", []string{"uservoice.com"}, []string{"this uservoice subdomain is still available"}, []int{200, 404}},
-	{"Statuspage", []string{"statuspage.io"}, []string{"page not found"}, []int{404}},
-	{"WordPress.com", []string{"wordpress.com"}, []string{"doesn’t exist", "does not exist"}, []int{404}},
+	{"Statuspage", []string{"statuspage.io"}, nil, []int{404}},
+	{"WordPress.com", []string{"wordpress.com"}, nil, []int{404}},
 }
 
 func matchTakeoverService(cname string) *takeoverFingerprint {
@@ -186,10 +192,13 @@ func checkTakeover(ctx context.Context, resolver hostResolver, client *http.Clie
 			info.EvidenceType = "UNCLAIMED_MARKER"
 			info.Evidence += fmt.Sprintf("; HTTP %d; unclaimed marker matched: %q", *sc, marker)
 		case containsInt(fp.statusCodes, *sc):
-			info.Status = TakeoverCandidate
-			info.Confidence = 0.5
-			info.EvidenceType = "STATUS"
-			info.Evidence += fmt.Sprintf("; HTTP %d (service returned an unclaimed-style status; no marker matched)", *sc)
+			// A matching status with no service-specific unclaimed marker is not evidence of a
+			// takeover: the same status is returned by ordinary error pages on claimed resources.
+			// Report it as INCONCLUSIVE so it is never presented as a candidate.
+			info.Status = TakeoverInconclusive
+			info.Confidence = 0.25
+			info.EvidenceType = "STATUS_ONLY"
+			info.Evidence += fmt.Sprintf("; HTTP %d, but no unclaimed marker matched — status alone is not evidence of an unclaimed resource", *sc)
 		default:
 			info.Status = TakeoverNotVuln
 			info.Confidence = 0.15

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "defaultPolicyFile": "./policies/tesla.com.json",
+  "defaultPolicyFile": "./policies/www.agoda.com.json",
   "logging": {
     "level": "info",
     "format": "pretty"

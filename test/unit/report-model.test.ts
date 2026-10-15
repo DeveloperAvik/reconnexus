@@ -60,7 +60,18 @@ describe("finding derivation", () => {
     expect(high.confidence).toBe(0.99);
     expect([...byId.values()].find((f) => f.subject === "https://e.com/c.js")!.validation).toBe("REJECTED");
     expect([...byId.values()].find((f) => f.subject === "https://e.com/d.js")!.validation).toBe("INDETERMINATE");
-    expect([...byId.values()].find((f) => f.subject === "b.e.com")!.validation).toBe("REJECTED");
+    // A NOT_VULNERABLE takeover is inventory, not a finding: it must not appear as a finding at all.
+    expect([...byId.values()].find((f) => f.subject === "b.e.com")).toBeUndefined();
+  });
+
+  it("excludes non-actionable takeover candidates (NOT_VULNERABLE / INCONCLUSIVE) from findings", () => {
+    const mixed = [
+      { host: "s.e.com", cname: "s.s3.amazonaws.com", service: "s3", status: "SUSPECTED", confidence: 0.8, httpStatus: 404, evidence: "NoSuchBucket" },
+      { host: "n.e.com", cname: "n.github.io", service: "github", status: "NOT_VULNERABLE", confidence: 0.9, httpStatus: 200, evidence: "claimed" },
+      { host: "i.e.com", cname: "i.herokuapp.com", service: "heroku", status: "INCONCLUSIVE", confidence: 0.25, httpStatus: 404, evidence: "status only" },
+    ];
+    const only = buildFindings([], mixed);
+    expect(only.map((f) => f.subject)).toEqual(["s.e.com"]);
   });
 
   it("assigns severity by impact and never escalates a suppressed candidate", () => {

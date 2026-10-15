@@ -506,6 +506,8 @@ export async function ingestDiscoveryResult(
         statusCode: rec.statusCode,
         classifications: rec.classifications,
         parameters: rec.parameters,
+        scriptRef: rec.scriptRef === true,
+        parentUrl: rec.parentUrl ?? "",
         provider: rec.provider,
         host: rec.host,
       });

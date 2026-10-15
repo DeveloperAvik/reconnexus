@@ -128,14 +128,74 @@ export function takeoverToFinding(t: ReportTakeover): ReportFinding {
   };
 }
 
+/**
+ * A security-metadata observation reduced to the fields a finding rule needs. Only genuinely
+ * applicable, evidence-backed conditions become findings; a `NOT_OBSERVED` control never does.
+ */
+export interface SecurityMetadataFindingInput {
+  service: string;
+  category: string;
+  name: string;
+  status: string;
+  url: string;
+  detail: Record<string, unknown>;
+}
+
+function isHttps(url: string): boolean {
+  return url.trim().toLowerCase().startsWith("https://");
+}
+
+/**
+ * Derive the one conservative security-metadata finding rule: an HTTPS response that sets a cookie
+ * without the `Secure` attribute. Applicability is explicit (the response was served over TLS and
+ * the cookie was actually set), the evidence is the Set-Cookie attributes themselves, and the
+ * finding is a LOW-severity candidate — never a claim that the cookie is exposed, because that
+ * needs HTTP reachability and the cookie's purpose, which a single response cannot establish.
+ * Missing headers, CORS wildcards and other single-response observations deliberately do NOT
+ * become findings.
+ */
+export function insecureCookieFindings(rows: readonly SecurityMetadataFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const row of rows) {
+    if (row.category !== "COOKIE" || row.status !== "OBSERVED") continue;
+    if (!row.name || !isHttps(row.url)) continue;
+    if (row.detail.secure !== false) continue;
+    const key = `${row.service}\u0000${row.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    findings.push({
+      id: findingId(["insecure-cookie", row.service, row.name]),
+      title: `Cookie "${row.name}" set without the Secure attribute over HTTPS`,
+      category: "INSECURE_COOKIE",
+      severity: "LOW",
+      confidence: 0.6,
+      validation: "SUSPECTED",
+      subject: row.service,
+      sourceStage: "10-security-checks",
+      sourceKind: "security-metadata",
+      evidence: `Set-Cookie for "${row.name}" on ${row.url} has Secure=absent; SameSite=${String(row.detail.sameSite ?? "unknown")}`,
+      evidenceRefs: [row.url, `cookie:${row.name}`],
+      remediation:
+        "Add the Secure attribute so the browser only sends the cookie over TLS; also confirm SameSite and HttpOnly are set for session cookies. This is a configuration observation, not a demonstrated exposure.",
+      references: ["https://owasp.org/www-community/controls/SecureCookieAttribute"],
+    });
+  }
+  return findings;
+}
+
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
 
 /**
  * Build the findings list. Order is deterministic: severity, then validation, then id — so two
  * reports from identical persisted state are byte-identical.
  */
-export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportTakeover[]): ReportFinding[] {
-  const findings = [...secrets.map(secretFindingToFinding), ...takeovers.map(takeoverToFinding)];
+export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportTakeover[], security: ReportFinding[] = []): ReportFinding[] {
+  // Only SUSPECTED/CANDIDATE takeovers are findings. NOT_VULNERABLE and INCONCLUSIVE are inventory
+  // (they remain in the report's takeoverCandidates section): listing "not vulnerable" or
+  // "inconclusive" as a finding inflates the findings count and misleads the reader.
+  const actionableTakeovers = takeovers.filter((t) => t.status === "SUSPECTED" || t.status === "CANDIDATE");
+  const findings = [...secrets.map(secretFindingToFinding), ...actionableTakeovers.map(takeoverToFinding), ...security];
   return findings.sort((a, b) => {
     const s = (SEVERITY_RANK[a.severity] ?? 9) - (SEVERITY_RANK[b.severity] ?? 9);
     if (s !== 0) return s;

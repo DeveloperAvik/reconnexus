@@ -277,6 +277,14 @@ export const UrlObservationRecordSchema = z.object({
   provider: z.string().min(1),
   classifications: z.array(UrlClassificationSchema).default([]),
   parameters: z.array(UrlParameterSchema).default([]),
+  /**
+   * True when this URL was referenced by a `<script src>` attribute in an HTML document. It is
+   * evidence that the resource was loaded as JavaScript, even when the path has no script
+   * extension (extensionless bundles); the content is still validated before any parsing.
+   */
+  scriptRef: z.boolean().default(false),
+  /** Absolute URL of the HTML document that referenced this resource, for provenance. */
+  parentUrl: z.string().default(""),
 });
 export type UrlObservationRecord = z.infer<typeof UrlObservationRecordSchema>;
 

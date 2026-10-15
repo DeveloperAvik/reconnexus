@@ -38,6 +38,9 @@ core.
 | API intelligence: OpenAPI/Swagger (JSON+YAML), method-aware endpoints, parameters, `$ref` | ✅ |
 | API specification discovery: well-known paths probed on origins with evidence of an API (budgeted, deterministic) | ✅ |
 | Queryable assets/HTTP/technologies/URLs/params/JS/endpoints/specs (`js`, `apis`, `specs`) | ✅ |
+| Scan-to-scan asset comparison (`assets diff <baseline> <current>`, read-only) | ✅ |
+| Change intelligence across assets/DNS/HTTP/TLS/tech/API/JS/findings (`changes`, read-only) | ✅ |
+| Vulnerability intelligence: technology→CVE candidates with applicability states (`vulns`, offline advisories or NVD+KEV) | ✅ |
 | Security metadata: TLS/HSTS/headers/cookies(attrs)/CORS/content-type with status + evidence | ✅ |
 | Secret detection: rules + entropy, redacted-only findings, keyed fingerprints | ✅ |
 | Subdomain-takeover detection: CNAME fingerprints + unclaimed-marker confirmation (candidate-only) | ✅ |
@@ -108,6 +111,10 @@ npm run rn -- scan start https://example.com/ --run
 npm run rn -- scan list
 npm run rn -- scan status "$SCAN"
 npm run rn -- coverage "$SCAN"
+npm run rn -- assets list "$SCAN"
+npm run rn -- assets diff "$PREVIOUS_SCAN" "$SCAN"   # added/removed/unchanged observed assets
+npm run rn -- changes "$PREVIOUS_SCAN" "$SCAN"       # multi-category change report (--category/--status/--format)
+npm run rn -- vulns "$SCAN" --advisories advisories.json   # technology→CVE candidates (offline); or --online for NVD
 npm run rn -- urls "$SCAN" --stats
 npm run rn -- secrets "$SCAN"
 npm run rn -- takeover "$SCAN"

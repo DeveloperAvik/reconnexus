@@ -17,7 +17,7 @@ import {
 } from "@reconnexus/contracts";
 import { redactString } from "@reconnexus/logging";
 import type { Repository, ScanRow } from "../repository.js";
-import { buildFindings, findingTotals } from "./findings.js";
+import { buildFindings, findingTotals, insecureCookieFindings, type SecurityMetadataFindingInput } from "./findings.js";
 
 export class ReportRedactionError extends Error {
   constructor(message: string, readonly reason?: unknown) {
@@ -38,6 +38,9 @@ export const REPORT_LIMITATIONS: string[] = [
   "Asset counts are project-level, because canonical asset identity is per project.",
   "Fingerprints produced with different HMAC keys are not comparable; correlation assumes a stable key.",
   "Subdomain-takeover entries are CANDIDATES: a CNAME to a takeover-prone service with an unclaimed response is not proof the subdomain is takeoverable, and no takeover was attempted.",
+  "API endpoints are counted by distinct `method origin path` identity, not by raw observation: the same endpoint found in several artifacts or by several providers is one endpoint. Per-source counts overlap, so they can sum to more than the distinct total (see reconciliation).",
+  "An insecure-cookie finding records that a cookie was set without the Secure attribute in one HTTPS response; it is scoped to that endpoint and does not establish that the cookie is exposed — HTTP reachability and the cookie's purpose need separate confirmation.",
+  "Security headers, CORS and other security-metadata observations remain inventory. A single response is not proof that a control is universally missing, so no finding is derived from an absent header.",
 ];
 
 /** Default cap on rows per inventory section, so a large scan cannot produce an unbounded report. */
@@ -222,7 +225,7 @@ async function buildAssessment(repo: Repository, scan: ScanRow, policy: ScopePol
  * counts; rows are capped at `maxRows` so a large scan cannot produce an unbounded report. A
  * section whose rows were capped is marked `truncated`.
  */
-async function buildInventory(repo: Repository, scanId: string, byKind: Record<string, number>, maxRows: number): Promise<ReportInventory> {
+async function buildInventory(repo: Repository, scanId: string, byKind: Record<string, number>, maxRows: number, apiEndpointDistinct: number): Promise<ReportInventory> {
   const dnsSampleLimit = Math.max(maxRows, Math.min(maxRows * 8, 20000));
 
   const [dns, http, tech, urls, apis, specs, js, sourceMaps, security] = await Promise.all([
@@ -391,7 +394,10 @@ async function buildInventory(repo: Repository, scanId: string, byKind: Record<s
       confidence: Math.min(1, Math.max(0, Number(t.confidence) || 0)),
     }))),
     urls: sectionOf(byKind.url ?? urlRows.length, urlRows),
-    apis: sectionOf(byKind["api-endpoint"] ?? apiRows.length, apiRows),
+    // Endpoints are reported by distinct canonical identity, not by raw observation count: the same
+    // endpoint extracted from two JavaScript files is one endpoint. The raw observation count is
+    // preserved in the reconciliation section, so the two numbers are never conflated.
+    apis: sectionOf(Math.max(apiEndpointDistinct, apiRows.length), apiRows),
     specs: sectionOf(byKind["api-spec"] ?? specRows.length, specRows),
     parameters: {
       total: params.size,
@@ -434,7 +440,7 @@ export async function buildReport(repo: Repository, scanId: string, opts: BuildR
   const maxRows = Math.max(1, opts.maxRows ?? REPORT_DEFAULT_MAX_ROWS);
   const maxEvidence = Math.max(0, opts.maxEvidence ?? REPORT_DEFAULT_MAX_EVIDENCE);
 
-  const [jobs, coverage, assetCounts, obs, secretRows, corrRows, takeoverRows, outcomes, executions, policyRow, evidenceRows, evidenceTotal] =
+  const [jobs, coverage, assetCounts, obs, secretRows, corrRows, takeoverRows, outcomes, executions, policyRow, evidenceRows, evidenceTotal, apiEndpointDistinct, apiBreakdown] =
     await Promise.all([
       repo.listJobs(scanId),
       repo.listCoverage(scanId),
@@ -448,9 +454,27 @@ export async function buildReport(repo: Repository, scanId: string, opts: BuildR
       repo.getPolicyById(scan.policy_id),
       repo.listEvidenceArtifacts(scanId, maxEvidence),
       repo.countEvidenceArtifacts(scanId),
+      repo.countDistinctApiEndpoints(scanId),
+      repo.apiEndpointBreakdown(scanId),
     ]);
   const covByStage = new Map(coverage.map((c) => [c.stage, c]));
-  const inventory = await buildInventory(repo, scanId, obs.byKind, maxRows);
+  const inventory = await buildInventory(repo, scanId, obs.byKind, maxRows, apiEndpointDistinct);
+
+  // Reconciliation: raw observations -> distinct endpoints -> rows shown, plus the per-source and
+  // per-provider breakdown, so the headline API count is traceable to its underlying records.
+  const endpointsBySource: Record<string, number> = {};
+  const endpointsByProvider: Record<string, number> = {};
+  for (const b of apiBreakdown) {
+    if (b.source) endpointsBySource[b.source] = (endpointsBySource[b.source] ?? 0) + b.n;
+    if (b.provider) endpointsByProvider[b.provider] = (endpointsByProvider[b.provider] ?? 0) + b.n;
+  }
+  const reconciliation = {
+    endpointRawObservations: obs.byKind["api-endpoint"] ?? 0,
+    endpointDistinct: apiEndpointDistinct,
+    endpointShown: inventory.apis.shown,
+    endpointsBySource: sortedRecord(endpointsBySource),
+    endpointsByProvider: sortedRecord(endpointsByProvider),
+  };
 
   // Execution metrics, keyed by stage+provider. Several executions can exist for one provider
   // (retries); attempts is their count and the metrics come from the most recent one.
@@ -606,10 +630,27 @@ export async function buildReport(repo: Repository, scanId: string, opts: BuildR
     })
     .sort((a, b) => (a.host < b.host ? -1 : 1));
 
-  const findings: ReportFinding[] = buildFindings(secretFindings, takeoverCandidates);
+  // Conservative security-metadata findings. Only the strictly-gated insecure-cookie rule is
+  // derived; every other security observation stays inventory (a single response is not proof of a
+  // universal misconfiguration). See `insecureCookieFindings`.
+  const securityMetaRows = await repo.listSecurityMetadata(scanId, 5000);
+  const securityFindingInputs: SecurityMetadataFindingInput[] = securityMetaRows.map((r) => {
+    const d = (r.data ?? {}) as { category?: string; name?: string; status?: string; url?: string; detail?: unknown };
+    return {
+      service: r.service,
+      category: d.category ?? "",
+      name: d.name ?? "",
+      status: d.status ?? "",
+      url: d.url ?? r.service,
+      detail: (typeof d.detail === "object" && d.detail !== null ? d.detail : {}) as Record<string, unknown>,
+    };
+  });
+  const findings: ReportFinding[] = buildFindings(secretFindings, takeoverCandidates, insecureCookieFindings(securityFindingInputs));
 
-  const actionableTakeovers = takeoverCandidates.filter((t) => t.status === "SUSPECTED" || t.status === "CANDIDATE").length;
-  const findingsCount = secretFindings.length + correlations.length + actionableTakeovers;
+  // The report status must agree with the findings the report actually contains (`findingTotals`).
+  // Correlations are evidence joins, not findings, so counting them here once labelled a report
+  // with 271 correlations and zero findings `COMPLETE_WITH_FINDINGS` — a self-contradiction.
+  const findingsCount = findings.length;
   const analysisStatus = deriveAnalysisStatus(jobs.filter((j) => j.job_key !== "12-reporting").map((j) => j.status));
   const reportStatus = deriveReportStatus(
     analysisStatus,
@@ -655,6 +696,7 @@ export async function buildReport(repo: Repository, scanId: string, opts: BuildR
     providerErrors,
     assetCounts: sortedRecord(assetCounts),
     observationCounts: { total: obs.total, byKind: sortedRecord(obs.byKind), bySource: sortedRecord(obs.bySource) },
+    reconciliation,
     inventory,
     findings,
     findingTotals: findingTotals(findings),

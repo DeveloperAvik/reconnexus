@@ -89,13 +89,50 @@ func TestTakeoverSuspectedFromUnclaimedMarker(t *testing.T) {
 	}
 }
 
-func TestTakeoverCandidateFromStatusOnly(t *testing.T) {
+// Regression: a 404 with no service-specific unclaimed marker must NOT be a candidate. Ordinary
+// error pages on claimed resources return the same status and were the main false-positive source.
+func TestTakeoverStatusOnlyIsInconclusiveNotCandidate(t *testing.T) {
 	srv := serving("generic error page", 404)
 	defer srv.Close()
 	res, _ := runTakeover(t, srv, "user.herokuapp.com")
 	recs := takeoverRecords(res)
-	if len(recs) != 1 || recs[0].Status != TakeoverCandidate || recs[0].Service != "Heroku" {
-		t.Fatalf("expected CANDIDATE for Heroku, got %+v", recs)
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 record, got %+v", recs)
+	}
+	if recs[0].Status == TakeoverCandidate || recs[0].Status == TakeoverSuspected {
+		t.Fatalf("status-only response must not be candidate/suspected, got %+v", recs[0])
+	}
+	if recs[0].Status != TakeoverInconclusive || recs[0].Service != "Heroku" {
+		t.Fatalf("expected INCONCLUSIVE for Heroku, got %+v", recs[0])
+	}
+	if recs[0].EvidenceType != "STATUS_ONLY" {
+		t.Errorf("expected STATUS_ONLY evidence type, got %q", recs[0].EvidenceType)
+	}
+}
+
+// A generic phrase that used to be a marker ("bad request", "not found") must no longer raise a
+// candidate on a shared-CDN CNAME.
+func TestTakeoverGenericMarkerNoLongerSuspected(t *testing.T) {
+	for _, tc := range []struct {
+		body    string
+		status  int
+		cname   string
+		service string
+	}{
+		{"Bad Request", 403, "d123.cloudfront.net", "Amazon CloudFront"},
+		{"not found", 404, "x.trafficmanager.net", "Azure Traffic Manager"},
+		{"page not found", 404, "x.statuspage.io", "Statuspage"},
+	} {
+		srv := serving(tc.body, tc.status)
+		res, _ := runTakeover(t, srv, tc.cname)
+		srv.Close()
+		recs := takeoverRecords(res)
+		if len(recs) != 1 {
+			t.Fatalf("%s: expected 1 record, got %+v", tc.service, recs)
+		}
+		if recs[0].Status == TakeoverSuspected || recs[0].Status == TakeoverCandidate {
+			t.Errorf("%s: generic body %q must not be a candidate, got %+v", tc.service, tc.body, recs[0])
+		}
 	}
 }
 

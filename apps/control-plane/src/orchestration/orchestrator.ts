@@ -731,8 +731,12 @@ export class ScanOrchestrator {
     const rows = await this.repo.listUrlObservations(scan.id);
     const jsSet = new Set<string>();
     for (const r of rows) {
-      const data = r.data as { url?: string; classifications?: Array<{ category: string }> };
-      const isJs = (data.classifications ?? []).some((c) => c.category === "JAVASCRIPT" || c.category === "STATIC_ASSET");
+      const data = r.data as { url?: string; scriptRef?: boolean; classifications?: Array<{ category: string }> };
+      // Only URLs classified JAVASCRIPT, referenced by a <script src>, or with a script extension
+      // are analysed. STATIC_ASSET covers images, CSS, fonts and video, and feeding those here made
+      // the JS stage fetch and "analyse" a WordPress .jpg. Non-script content is re-checked in the
+      // worker (defence in depth) so a misclassification cannot cause binary parsing.
+      const isJs = (data.classifications ?? []).some((c) => c.category === "JAVASCRIPT") || data.scriptRef === true;
       if (isJs || looksLikeJs(r.url)) jsSet.add(r.url);
     }
     const jsUrls = Array.from(jsSet).slice(0, MAX_JS_URLS);
@@ -1206,8 +1210,10 @@ export function aggregate(outcomes: string[]): string {
   if (unavailable === outcomes.length) return JobStatus.SOURCE_UNAVAILABLE;
   if (failed === outcomes.length) return JobStatus.FAILED;
   if (ok === outcomes.length) return JobStatus.SUCCEEDED;
-  if (ok + partial > 0 && failed + unavailable + blocked > 0) return JobStatus.PARTIAL;
-  if (ok + partial > 0) return JobStatus.SUCCEEDED;
+  // Any provider that returned PARTIAL, or any mix that is not all-success, means this stage's
+  // coverage is incomplete. Reporting it SUCCEEDED would let one provider's partial result be
+  // masked by its siblings (or by itself, for a single-provider stage).
+  if (ok + partial > 0) return JobStatus.PARTIAL;
   return JobStatus.FAILED;
 }
 

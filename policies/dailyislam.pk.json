@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policyId": "e92b542b-429e-4dbc-ac90-bab6e3fb2b02",
+  "projectId": "db56ca27-4465-4d68-a5d5-8e5085b32c46",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "Avik",
+    "authorizedBy": "you",
+    "validFrom": "2026-10-15T06:42:23.517Z",
+    "validUntil": "2027-01-13T06:42:23.517Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "dailyislam.pk",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

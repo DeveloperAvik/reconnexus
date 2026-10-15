@@ -10,4 +10,6 @@ export * from "./reporting/report.js";
 export * from "./reporting/findings.js";
 export * from "./reporting/format.js";
 export * from "./reporting/html.js";
+export * from "./comparison/engine.js";
+export * from "./intelligence/index.js";
 

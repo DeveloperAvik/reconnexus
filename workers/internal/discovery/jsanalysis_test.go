@@ -231,6 +231,49 @@ func TestJsAnalysisSourceMapDisabled(t *testing.T) {
 	}
 }
 
+// Regression: a .js URL that actually returns a binary asset (e.g. a WordPress image) must not be
+// parsed as JavaScript. The artifact is retrieved and classified SKIPPED with a rationale; no
+// endpoints are invented from binary content.
+func TestJsAnalysisRejectsNonScriptContent(t *testing.T) {
+	jpeg := append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, []byte("JFIF...binary image body with /api/v1/fake inside...")...)
+	css := []byte("body{background:url(/api/v1/thing.png)}")
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/photo.js":
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write(jpeg)
+		case "/styles.js":
+			w.Header().Set("Content-Type", "text/css")
+			_, _ = w.Write(css)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+
+	res, _ := Run(context.Background(), jsJob([]string{srv.URL + "/photo.js", srv.URL + "/styles.js"}), nil)
+	if res.Status != StatusSucceeded {
+		t.Fatalf("status=%s diag=%v", res.Status, res.Diagnostics)
+	}
+	skipped := 0
+	for _, r := range res.Records {
+		if r.Type == TypeJSArtifact && r.Artifact != nil && r.Artifact.Status == ArtifactSkipped {
+			skipped++
+		}
+	}
+	if skipped != 2 {
+		t.Fatalf("expected both non-script artifacts SKIPPED, got %d", skipped)
+	}
+	if eps := endpointsOf(res); len(eps) != 0 {
+		t.Fatalf("no endpoints should be extracted from non-script content, got %v", epList(eps))
+	}
+	if res.Coverage.Skipped < 2 {
+		t.Fatalf("expected skipped coverage to reflect exclusions, got %+v", res.Coverage)
+	}
+}
+
 func TestJsAnalysisBlockedWithoutCapability(t *testing.T) {
 	p := jsPolicy()
 	p.Authorization.Capabilities = []string{"PASSIVE"}

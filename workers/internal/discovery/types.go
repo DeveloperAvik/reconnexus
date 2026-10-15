@@ -7,43 +7,43 @@ import "github.com/reconnexus/workers/internal/scope"
 
 // Job is the worker input (mirrors DiscoveryJobSchema).
 type Job struct {
-	SchemaVersion             int          `json:"schemaVersion"`
-	ScanID                    string       `json:"scanId"`
-	ProjectID                 string       `json:"projectId"`
-	Stage                     string       `json:"stage"`
-	JobKey                    string       `json:"jobKey"`
-	Kind                      string       `json:"kind"`
-	Provider                  string       `json:"provider"`
-	Policy                    scope.Policy `json:"policy"`
-	Limits                    scope.Limits `json:"limits"`
-	Inputs                    Inputs       `json:"inputs"`
-	AllowRestrictedAddresses  bool         `json:"allowRestrictedAddresses"`
-	BinaryPath                string       `json:"binaryPath,omitempty"`
-	FixturePath               string       `json:"fixturePath,omitempty"`
-	ResolverAddress           string       `json:"resolverAddress,omitempty"`
-	RdapBaseURL               string       `json:"rdapBaseUrl,omitempty"`
-	WorkDir                   string       `json:"workDir,omitempty"`
-	TimeoutMs                 int          `json:"timeoutMs,omitempty"`
-	MaxOutputBytes            int          `json:"maxOutputBytes,omitempty"`
-	MaxRedirects              int          `json:"maxRedirects,omitempty"`
-	RequestTimeoutMs          int          `json:"requestTimeoutMs,omitempty"`
-	TLSCaFile                 string       `json:"tlsCaFile,omitempty"`
+	SchemaVersion            int          `json:"schemaVersion"`
+	ScanID                   string       `json:"scanId"`
+	ProjectID                string       `json:"projectId"`
+	Stage                    string       `json:"stage"`
+	JobKey                   string       `json:"jobKey"`
+	Kind                     string       `json:"kind"`
+	Provider                 string       `json:"provider"`
+	Policy                   scope.Policy `json:"policy"`
+	Limits                   scope.Limits `json:"limits"`
+	Inputs                   Inputs       `json:"inputs"`
+	AllowRestrictedAddresses bool         `json:"allowRestrictedAddresses"`
+	BinaryPath               string       `json:"binaryPath,omitempty"`
+	FixturePath              string       `json:"fixturePath,omitempty"`
+	ResolverAddress          string       `json:"resolverAddress,omitempty"`
+	RdapBaseURL              string       `json:"rdapBaseUrl,omitempty"`
+	WorkDir                  string       `json:"workDir,omitempty"`
+	TimeoutMs                int          `json:"timeoutMs,omitempty"`
+	MaxOutputBytes           int          `json:"maxOutputBytes,omitempty"`
+	MaxRedirects             int          `json:"maxRedirects,omitempty"`
+	RequestTimeoutMs         int          `json:"requestTimeoutMs,omitempty"`
+	TLSCaFile                string       `json:"tlsCaFile,omitempty"`
 }
 
 type Inputs struct {
-	RootDomain    string         `json:"rootDomain,omitempty"`
-	Names         []string       `json:"names,omitempty"`
-	Addresses     []AddressInput `json:"addresses,omitempty"`
-	URLs          []string       `json:"urls,omitempty"`
-	SeedURLs      []string       `json:"seedUrls,omitempty"`
-	Domains       []string       `json:"domains,omitempty"`
-	CrawlDepth    int            `json:"crawlDepth,omitempty"`
-	RequestBudget int            `json:"requestBudget,omitempty"`
-	JSURLs          []string `json:"jsUrls,omitempty"`
-	SpecURLs        []string `json:"specUrls,omitempty"`
-	SpecProbeURLs   []string `json:"specProbeUrls,omitempty"`
-	FetchSourceMaps bool     `json:"fetchSourceMaps,omitempty"`
-	ArtifactURLs    []string `json:"artifactUrls,omitempty"`
+	RootDomain      string         `json:"rootDomain,omitempty"`
+	Names           []string       `json:"names,omitempty"`
+	Addresses       []AddressInput `json:"addresses,omitempty"`
+	URLs            []string       `json:"urls,omitempty"`
+	SeedURLs        []string       `json:"seedUrls,omitempty"`
+	Domains         []string       `json:"domains,omitempty"`
+	CrawlDepth      int            `json:"crawlDepth,omitempty"`
+	RequestBudget   int            `json:"requestBudget,omitempty"`
+	JSURLs          []string       `json:"jsUrls,omitempty"`
+	SpecURLs        []string       `json:"specUrls,omitempty"`
+	SpecProbeURLs   []string       `json:"specProbeUrls,omitempty"`
+	FetchSourceMaps bool           `json:"fetchSourceMaps,omitempty"`
+	ArtifactURLs    []string       `json:"artifactUrls,omitempty"`
 }
 
 type AddressInput struct {
@@ -53,14 +53,14 @@ type AddressInput struct {
 
 // Result is the worker output (mirrors DiscoveryResultSchema).
 type Result struct {
-	SchemaVersion   int          `json:"schemaVersion"`
-	Status          string       `json:"status"`
-	Provider        string       `json:"provider"`
-	ProviderVersion string       `json:"providerVersion"`
-	Execution       Execution    `json:"execution"`
-	Coverage        Coverage     `json:"coverage"`
-	Records         []Record     `json:"records"`
-	Diagnostics     []string     `json:"diagnostics"`
+	SchemaVersion   int       `json:"schemaVersion"`
+	Status          string    `json:"status"`
+	Provider        string    `json:"provider"`
+	ProviderVersion string    `json:"providerVersion"`
+	Execution       Execution `json:"execution"`
+	Coverage        Coverage  `json:"coverage"`
+	Records         []Record  `json:"records"`
+	Diagnostics     []string  `json:"diagnostics"`
 }
 
 // Execution is the structured execution record.
@@ -87,7 +87,7 @@ type Coverage struct {
 
 // Record is a discriminated union of discovery records.
 type Record struct {
-	Type     string   `json:"type"`
+	Type string `json:"type"`
 	// HOST_OBSERVATION
 	Host      string   `json:"host,omitempty"`
 	Source    string   `json:"source,omitempty"`
@@ -96,21 +96,21 @@ type Record struct {
 	Addresses []string `json:"addresses,omitempty"`
 	Notes     string   `json:"notes,omitempty"`
 	// DNS_RECORD
-	Name       string  `json:"name,omitempty"`
-	RecordType string  `json:"recordType,omitempty"`
-	Value      string  `json:"value,omitempty"`
-	TTL        *int    `json:"ttl,omitempty"`
-	Resolver   string  `json:"resolver,omitempty"`
-	Error      string  `json:"error,omitempty"`
+	Name       string `json:"name,omitempty"`
+	RecordType string `json:"recordType,omitempty"`
+	Value      string `json:"value,omitempty"`
+	TTL        *int   `json:"ttl,omitempty"`
+	Resolver   string `json:"resolver,omitempty"`
+	Error      string `json:"error,omitempty"`
 	// IP_METADATA
-	IP           string   `json:"ip,omitempty"`
-	Prefix       *string  `json:"prefix,omitempty"`
-	ASN          *int     `json:"asn,omitempty"`
-	ASNOrg       *string  `json:"asnOrg,omitempty"`
-	NetworkName  *string  `json:"networkName,omitempty"`
-	Country      *string  `json:"country,omitempty"`
-	Confidence   float64  `json:"confidence,omitempty"`
-	Limitations  []string `json:"limitations,omitempty"`
+	IP          string   `json:"ip,omitempty"`
+	Prefix      *string  `json:"prefix,omitempty"`
+	ASN         *int     `json:"asn,omitempty"`
+	ASNOrg      *string  `json:"asnOrg,omitempty"`
+	NetworkName *string  `json:"networkName,omitempty"`
+	Country     *string  `json:"country,omitempty"`
+	Confidence  float64  `json:"confidence,omitempty"`
+	Limitations []string `json:"limitations,omitempty"`
 	// HTTP_OBSERVATION
 	URL  string       `json:"url,omitempty"`
 	HTTP *HTTPDetails `json:"http,omitempty"`
@@ -123,6 +123,10 @@ type Record struct {
 	StatusCode      *int                `json:"statusCode,omitempty"`
 	Classifications []UrlClassification `json:"classifications,omitempty"`
 	Parameters      []UrlParameter      `json:"parameters,omitempty"`
+	// ScriptRef marks a URL referenced by a <script src> attribute (extensionless JS support).
+	ScriptRef bool `json:"scriptRef,omitempty"`
+	// ParentURL is the HTML document that referenced this URL, for provenance.
+	ParentURL string `json:"parentUrl,omitempty"`
 	// JS_ARTIFACT
 	Artifact *JsArtifactInfo `json:"artifact,omitempty"`
 	// SOURCE_MAP
@@ -143,14 +147,14 @@ type Record struct {
 
 // TakeoverInfo is a potential subdomain-takeover candidate (never a confirmed takeover).
 type TakeoverInfo struct {
-	Host         string `json:"host"`
-	CNAME        string `json:"cname"`
-	Service      string `json:"service"`
-	Status       string `json:"status"`
+	Host         string  `json:"host"`
+	CNAME        string  `json:"cname"`
+	Service      string  `json:"service"`
+	Status       string  `json:"status"`
 	Confidence   float64 `json:"confidence"`
-	HTTPStatus   *int   `json:"httpStatus"`
-	Evidence     string `json:"evidence"`
-	EvidenceType string `json:"evidenceType"`
+	HTTPStatus   *int    `json:"httpStatus"`
+	Evidence     string  `json:"evidence"`
+	EvidenceType string  `json:"evidenceType"`
 }
 
 // SecretCandidateInfo is a redacted potential-secret finding. The raw matched value is never held
@@ -237,21 +241,21 @@ type ApiSpecInfo struct {
 
 // ApiEndpoint is a method-aware API endpoint candidate or documented endpoint.
 type ApiEndpoint struct {
-	Method       string         `json:"method"`
-	Origin       string         `json:"origin"`
-	Path         string         `json:"path"`
-	URL          string         `json:"url"`
-	DiscoveredVia string        `json:"discoveredVia"`
-	Documented   bool           `json:"documented"`
-	Resolved     bool           `json:"resolved"`
-	OperationID  string         `json:"operationId"`
-	Tags         []string       `json:"tags"`
-	Parameters   []ApiParameter `json:"parameters"`
-	ContentTypes []string       `json:"contentTypes"`
-	AuthSchemes  []string       `json:"authSchemes"`
-	SourceURL    string         `json:"sourceUrl"`
-	Evidence     string         `json:"evidence"`
-	EvidenceType string         `json:"evidenceType"`
+	Method        string         `json:"method"`
+	Origin        string         `json:"origin"`
+	Path          string         `json:"path"`
+	URL           string         `json:"url"`
+	DiscoveredVia string         `json:"discoveredVia"`
+	Documented    bool           `json:"documented"`
+	Resolved      bool           `json:"resolved"`
+	OperationID   string         `json:"operationId"`
+	Tags          []string       `json:"tags"`
+	Parameters    []ApiParameter `json:"parameters"`
+	ContentTypes  []string       `json:"contentTypes"`
+	AuthSchemes   []string       `json:"authSchemes"`
+	SourceURL     string         `json:"sourceUrl"`
+	Evidence      string         `json:"evidence"`
+	EvidenceType  string         `json:"evidenceType"`
 }
 
 // ApiParameter is a documented or inferred endpoint parameter.
@@ -327,20 +331,20 @@ type TechDetails struct {
 }
 
 const (
-	TypeHostObservation = "HOST_OBSERVATION"
-	TypeDNSRecord       = "DNS_RECORD"
-	TypeIPMetadata      = "IP_METADATA"
-	TypeHTTPObservation = "HTTP_OBSERVATION"
-	TypeTechnology      = "TECHNOLOGY"
-	TypeURLObservation  = "URL_OBSERVATION"
-	TypeJSArtifact      = "JS_ARTIFACT"
-	TypeSourceMap       = "SOURCE_MAP"
-	TypeApiSpec         = "API_SPEC"
-	TypeApiEndpoint     = "API_ENDPOINT"
-	TypeSecurityMetadata = "SECURITY_METADATA"
-	TypeSecretCandidate  = "SECRET_CANDIDATE"
+	TypeHostObservation    = "HOST_OBSERVATION"
+	TypeDNSRecord          = "DNS_RECORD"
+	TypeIPMetadata         = "IP_METADATA"
+	TypeHTTPObservation    = "HTTP_OBSERVATION"
+	TypeTechnology         = "TECHNOLOGY"
+	TypeURLObservation     = "URL_OBSERVATION"
+	TypeJSArtifact         = "JS_ARTIFACT"
+	TypeSourceMap          = "SOURCE_MAP"
+	TypeApiSpec            = "API_SPEC"
+	TypeApiEndpoint        = "API_ENDPOINT"
+	TypeSecurityMetadata   = "SECURITY_METADATA"
+	TypeSecretCandidate    = "SECRET_CANDIDATE"
 	TypeSecretScanArtifact = "SECRET_SCAN_ARTIFACT"
-	TypeTakeoverCandidate = "TAKEOVER_CANDIDATE"
+	TypeTakeoverCandidate  = "TAKEOVER_CANDIDATE"
 )
 
 // Subdomain-takeover candidate statuses (never a confirmed takeover).

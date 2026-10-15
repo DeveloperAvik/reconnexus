@@ -38,11 +38,20 @@ Statuses:
 | Status | Meaning |
 | --- | --- |
 | `SUSPECTED` | CNAME to the service **and** an unclaimed marker matched (highest signal). |
-| `CANDIDATE` | CNAME to the service and an unclaimed-style status code, but no marker matched. |
+| `CANDIDATE` | Reserved for a service-specific signal that is weaker than a marker; not currently emitted. |
 | `NOT_VULNERABLE` | CNAME to the service but the resource appears claimed (no marker). |
-| `INCONCLUSIVE` | CNAME matched but the HTTP request failed/timed out. |
+| `INCONCLUSIVE` | CNAME matched with an unclaimed-style status but no service-specific marker, or the HTTP request failed/timed out. |
 
 Each record stores the host, CNAME, service, status, confidence, HTTP status, and redacted evidence.
+
+**False-positive control.** Only `SUSPECTED` (a service-specific unclaimed marker matched) is treated
+as an actionable finding; `CANDIDATE` also counts when emitted. `NOT_VULNERABLE` and `INCONCLUSIVE`
+remain in the `takeoverCandidates` inventory but are **not** turned into report findings. A matching
+HTTP status *alone* (e.g. a plain 404) is reported `INCONCLUSIVE` with `evidenceType: STATUS_ONLY` —
+it is never a candidate, because ordinary error pages on claimed resources return the same status.
+Generic marker strings were removed from the fingerprint set for the same reason; only
+service-specific markers (e.g. GitHub Pages' "there isn't a github pages site here") raise a
+candidate.
 
 ## Safety
 

@@ -146,6 +146,29 @@ func TestNonZeroExitIsFailureNotSuccess(t *testing.T) {
 	}
 }
 
+func TestPartialOutputThenProcessFailureIsFailedNotPartialSuccess(t *testing.T) {
+	// The tool prints a valid record, then crashes with a non-zero exit. The result must be FAILED
+	// with the exit code captured; a crash is never converted into a partial success silently.
+	script := writeScript(t, "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo v1.0.0; exit 0; fi\necho a.example.com\necho b.example.com\nexit 7\n")
+	job := Job{SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "02", JobKey: "02",
+		Kind: "SUBDOMAINS", Provider: "subfinder", Policy: testPolicy(),
+		Inputs: Inputs{RootDomain: "example.com"}, BinaryPath: script}
+	res, _ := Run(context.Background(), job, nil)
+	if res.Status != StatusFailed {
+		t.Fatalf("status=%s want FAILED", res.Status)
+	}
+	if res.Execution.ExitCode == nil || *res.Execution.ExitCode != 7 {
+		t.Fatalf("exitCode=%v want 7", res.Execution.ExitCode)
+	}
+	// Partial output is not ingested as if the run had succeeded.
+	if len(res.Records) != 0 {
+		t.Fatalf("partial output must not be ingested on failure, got %d records", len(res.Records))
+	}
+	if len(res.Diagnostics) == 0 {
+		t.Fatalf("expected a diagnostic explaining the failure")
+	}
+}
+
 func TestTimeout(t *testing.T) {
 	script := writeScript(t, "#!/bin/sh\nif [ \"$1\" = \"-version\" ]; then echo v1.0.0; exit 0; fi\nexec sleep 5\n")
 	job := Job{SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "02", JobKey: "02",

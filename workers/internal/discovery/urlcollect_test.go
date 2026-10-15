@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -107,6 +108,131 @@ func keysOf(m map[string]Record) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("bad test URL %q: %v", raw, err)
+	}
+	return u
+}
+
+func TestExtractScriptRefsResolvesAndFilters(t *testing.T) {
+	base := mustParseURL(t, "https://example.com/dir/page.html")
+	body := `<html><head>
+	<script src="/a.js"></script>
+	<script src="b.js"></script>
+	<script src="../c.js?x=1&y=2"></script>
+	<script src="//cdn.example.com/d.js"></script>
+	<script src="https://other.example/e.js"></script>
+	<script src="/assets/bundle"></script>
+	<script src="data:text/javascript,alert(1)"></script>
+	<script src="javascript:void(0)"></script>
+	<script type="module" defer src='quoted.mjs'></script>
+	<script>var u = "/inline/should-not-appear.js";</script>
+	<script src="/a.js"></script>
+	</head></html>`
+	got := extractScriptRefs(body, base)
+	want := map[string]bool{
+		"https://example.com/a.js":           true,
+		"https://example.com/dir/b.js":       true,
+		"https://example.com/c.js?x=1&y=2":   true,
+		"https://cdn.example.com/d.js":       true,
+		"https://other.example/e.js":         true,
+		"https://example.com/assets/bundle":  true,
+		"https://example.com/dir/quoted.mjs": true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d refs, got %d: %v", len(want), len(got), got)
+	}
+	for _, u := range got {
+		if !want[u] {
+			t.Errorf("unexpected ref %q", u)
+		}
+		if strings.Contains(u, "should-not-appear") || strings.Contains(u, "data:") || strings.Contains(u, "javascript:") {
+			t.Errorf("forbidden ref extracted: %q", u)
+		}
+	}
+}
+
+func TestCrawlerMarksScriptRefsAndPreservesProvenance(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<script src="/assets/bundle"></script>`+
+				`<script src="/img.png"></script>`+
+				`<script src="//evil.other.net/x.js"></script>`+
+				`<script>var u="/inline/should-not-appear.js";</script>`+
+				`<script src="/assets/bundle"></script>`)
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+	base := "http://example.com:" + portOf(t, srv.URL)
+	res, _ := Run(context.Background(), urlJob([]string{base + "/"}, nil), nil)
+
+	got := urlsOf(res)
+	ref, ok := got[base+"/assets/bundle"]
+	if !ok {
+		t.Fatalf("extensionless script ref missing; got %v", keysOf(got))
+	}
+	if !ref.ScriptRef {
+		t.Errorf("extensionless script ref not marked: %+v", ref)
+	}
+	if !hasCategory(ref, "JAVASCRIPT") {
+		t.Errorf("extensionless script ref not classified JAVASCRIPT: %+v", ref.Classifications)
+	}
+	if ref.ParentURL == "" {
+		t.Errorf("script ref missing parent-document provenance")
+	}
+	if png, ok := got[base+"/img.png"]; ok && png.ScriptRef {
+		t.Errorf("image referenced by a script tag must not be marked as a script ref")
+	}
+	for u := range got {
+		if strings.Contains(u, "evil.other.net") {
+			t.Fatalf("out-of-scope script ref leaked: %s", u)
+		}
+		if strings.Contains(u, "should-not-appear") {
+			t.Fatalf("inline script text was treated as a URL: %s", u)
+		}
+	}
+	if res.Coverage.Skipped < 1 {
+		t.Errorf("expected the out-of-scope script ref to be skipped, got %+v", res.Coverage)
+	}
+	// Extensionless refs are not fetched by the crawler (Stage 07 retrieves them with validation).
+	if ref.StatusCode != nil {
+		t.Errorf("script ref should be a candidate only, got statusCode=%v", *ref.StatusCode)
+	}
+}
+
+func TestCrawlerResolvesScriptRefsAgainstEffectiveURL(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			http.Redirect(w, r, "/sub/home", http.StatusFound)
+		case "/sub/home":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<script src="app.js"></script>`)
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+	base := "http://example.com:" + portOf(t, srv.URL)
+	res, _ := Run(context.Background(), urlJob([]string{base + "/start"}, nil), nil)
+	got := urlsOf(res)
+	if _, ok := got[base+"/sub/app.js"]; !ok {
+		t.Errorf("script ref not resolved against the effective (post-redirect) URL; got %v", keysOf(got))
+	}
+	if _, ok := got[base+"/start/app.js"]; ok {
+		t.Errorf("script ref resolved against the pre-redirect URL")
+	}
 }
 
 func TestCrawlerRespectsDepth(t *testing.T) {

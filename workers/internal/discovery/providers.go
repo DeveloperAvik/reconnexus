@@ -217,6 +217,16 @@ func (p *externalProvider) Run(ctx context.Context, pc ProviderContext) (Provide
 	if run.Truncated {
 		res.Diagnostics = append(res.Diagnostics, "provider output was truncated at the configured limit")
 	}
+	// A zero exit code with no parsed records is a *successful empty result*, which must be
+	// distinguishable from a failure, a timeout, or a malformed response. Record why it was empty
+	// so an analyst does not read silence as coverage.
+	if len(records) == 0 {
+		if strings.TrimSpace(run.Stdout) == "" {
+			res.Diagnostics = append(res.Diagnostics, "provider returned 0 records (exit 0); no output — the source may hold no data for this input")
+		} else {
+			res.Diagnostics = append(res.Diagnostics, "provider returned 0 usable records (exit 0); output present but did not parse")
+		}
+	}
 	res.Coverage.Succeeded = 1
 	return res, nil
 }

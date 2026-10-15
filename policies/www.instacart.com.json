@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policyId": "03b33034-914c-47df-9ba7-fb543ef193c3",
+  "projectId": "b9a562bf-bb8b-438b-9cfc-8680eb2898e4",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "LOCAL-AUTHORIZATION",
+    "authorizedBy": "you",
+    "validFrom": "2026-10-15T05:51:00.369Z",
+    "validUntil": "2027-01-13T05:51:00.369Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "instacart.com",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

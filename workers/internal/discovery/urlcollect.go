@@ -73,6 +73,10 @@ func (builtinCrawler) NetworkBehavior() string { return "ACTIVE" }
 
 var linkAttrRe = regexp.MustCompile(`(?i)(?:href|src|action)\s*=\s*["']([^"'#]+)`)
 
+// scriptSrcRe matches the `src` attribute of a <script> tag. It is deliberately scoped to the
+// script tag's src attribute: arbitrary inline script text is never treated as a URL.
+var scriptSrcRe = regexp.MustCompile(`(?is)<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']`)
+
 func (builtinCrawler) Run(ctx context.Context, pc ProviderContext) (ProviderResult, error) {
 	job := pc.Job
 	res := ProviderResult{Coverage: Coverage{}}
@@ -132,6 +136,13 @@ func (builtinCrawler) Run(ctx context.Context, pc ProviderContext) (ProviderResu
 		if idx, ok := emitted[rec.CanonicalURL]; ok {
 			if status != nil {
 				records[idx].StatusCode = status
+			}
+			// Upgrade provenance when the same canonical URL is later seen as a <script src>:
+			// the JavaScript classification and parent document are strictly more informative.
+			if rec.ScriptRef && !records[idx].ScriptRef {
+				records[idx].ScriptRef = true
+				records[idx].ParentURL = rec.ParentURL
+				records[idx].Classifications = mergeScriptRefClassifications(records[idx].Classifications, rec.Classifications)
 			}
 			return
 		}
@@ -221,6 +232,32 @@ func (builtinCrawler) Run(ctx context.Context, pc ProviderContext) (ProviderResu
 				if !strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "html") {
 					return
 				}
+				// <script src> references first, so their classification is in place before the
+				// generic link pass decides what to crawl. They become JavaScript candidates even
+				// when the path is extensionless (a common bundler pattern), preserving the
+				// parent-document provenance. They are not added to the crawl frontier below:
+				// a script is not an HTML document, and Stage 07 retrieves it once with content
+				// validation rather than the crawler fetching it twice.
+				parent := resp.Request.URL.String()
+				for _, sref := range extractScriptRefs(body, resp.Request.URL) {
+					c, h, ok, bad := authorizeURL(pc.Engine, "CRAWL", sref)
+					if bad || !ok {
+						if !bad {
+							mu.Lock()
+							res.Coverage.Skipped++
+							mu.Unlock()
+						}
+						continue
+					}
+					rec := buildURLRecord(sref, c, h, MethodCrawl, "builtin-crawler", "script-ref", it.depth+1, nil)
+					if !markScriptRef(&rec, parent) {
+						continue
+					}
+					mu.Lock()
+					emitOrUpdate(rec, nil)
+					mu.Unlock()
+				}
+
 				for _, link := range extractLinks(body, resp.Request.URL) {
 					c, h, ok, bad := authorizeURL(pc.Engine, "CRAWL", link)
 					if bad || !ok {
@@ -238,7 +275,9 @@ func (builtinCrawler) Run(ctx context.Context, pc ProviderContext) (ProviderResu
 					}
 					visited[c] = struct{}{}
 					emitOrUpdate(buildURLRecord(link, c, h, MethodCrawl, "builtin-crawler", "crawl", it.depth+1, nil), nil)
-					if it.depth+1 <= maxDepth {
+					// Only links that could yield HTML are followed; static assets and scripts are
+					// kept in the URL inventory but do not consume the crawl request budget.
+					if it.depth+1 <= maxDepth && crawlable(records[emitted[c]]) {
 						next = append(next, item{raw: c, depth: it.depth + 1})
 					}
 					mu.Unlock()
@@ -262,6 +301,100 @@ func (builtinCrawler) Run(ctx context.Context, pc ProviderContext) (ProviderResu
 func hostOf(canonical string) string {
 	h, _, _ := matching.HostAndPort(canonical)
 	return h
+}
+
+// extractScriptRefs returns the absolute, deduplicated URLs referenced by <script src> attributes,
+// resolved against the effective document URL (so relative, root-relative, protocol-relative and
+// query-bearing references are all handled). Only the src attribute of a script tag is considered;
+// inline script bodies are never parsed for URLs.
+func extractScriptRefs(body string, base *url.URL) []string {
+	if base == nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, m := range scriptSrcRe.FindAllStringSubmatch(body, -1) {
+		raw := strings.TrimSpace(m[1])
+		if raw == "" || strings.HasPrefix(raw, "javascript:") || strings.HasPrefix(raw, "data:") || strings.HasPrefix(raw, "blob:") {
+			continue
+		}
+		ref, err := url.Parse(raw)
+		if err != nil {
+			continue
+		}
+		resolved := base.ResolveReference(ref)
+		if resolved.Scheme != "http" && resolved.Scheme != "https" {
+			continue
+		}
+		s := resolved.String()
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
+}
+
+// crawlable reports whether following a URL could yield further HTML links. Scripts, static assets
+// and downloads cannot, so they are recorded in the URL inventory but do not spend the request
+// budget or risk parsing binary content as HTML.
+func crawlable(rec Record) bool {
+	for _, c := range rec.Classifications {
+		switch c.Category {
+		case "JAVASCRIPT", "STATIC_ASSET", "DOWNLOAD":
+			return false
+		}
+	}
+	return true
+}
+
+// markScriptRef annotates a URL record as a script reference. It returns false, leaving the record
+// untouched, when the URL already carries a strong non-script classification, so an image or font
+// misleadingly referenced from a <script> tag is never relabelled as JavaScript.
+func markScriptRef(rec *Record, parentURL string) bool {
+	for _, c := range rec.Classifications {
+		switch c.Category {
+		case "JAVASCRIPT":
+			rec.ScriptRef = true
+			rec.ParentURL = parentURL
+			return true
+		case "STATIC_ASSET", "DOWNLOAD":
+			return false
+		}
+	}
+	kept := make([]UrlClassification, 0, len(rec.Classifications)+1)
+	for _, c := range rec.Classifications {
+		if c.Category == "HTML_PAGE" || c.Category == "UNKNOWN" {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	kept = append(kept, UrlClassification{Category: "JAVASCRIPT", Confidence: 0.6, EvidenceType: "SCRIPT_REF", Evidence: "referenced by <script src> in " + parentURL})
+	rec.Classifications = kept
+	rec.ScriptRef = true
+	rec.ParentURL = parentURL
+	return true
+}
+
+// mergeScriptRefClassifications merges a script-reference classification into an existing set,
+// dropping HTML_PAGE/UNKNOWN fallbacks that the reference supersedes.
+func mergeScriptRefClassifications(existing, incoming []UrlClassification) []UrlClassification {
+	seen := map[string]bool{}
+	out := make([]UrlClassification, 0, len(existing)+len(incoming))
+	for _, list := range [][]UrlClassification{existing, incoming} {
+		for _, c := range list {
+			if c.Category == "HTML_PAGE" || c.Category == "UNKNOWN" {
+				continue
+			}
+			if seen[c.Category] {
+				continue
+			}
+			seen[c.Category] = true
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func extractLinks(body string, base *url.URL) []string {

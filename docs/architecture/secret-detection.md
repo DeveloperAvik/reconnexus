@@ -27,8 +27,15 @@ secrets, JWTs, bearer tokens, embedded credentials, and password assignments.
 
 - **Confidence:** high-confidence rules ⇒ `HIGH_CONFIDENCE`; heuristic/ambiguous rules ⇒ `CANDIDATE`.
 - **Overlap:** a generic/entropy match that overlaps a more specific match is dropped.
-- **Entropy:** the generic key/token rule requires Shanon entropy ≥ 3.5.
-- **Placeholders** (`example`, `changeme`, `your_`, `{{`, …) ⇒ `SUPPRESSED`.
+- **Entropy:** the generic key/token rule and the weak *assignment* rules (password, bearer, OAuth
+  client secret, webhook signing secret, JWT) require Shannon entropy ≥ 3.5. This drops ordinary
+  configuration/UI values (`password = 'required'`, repeated characters) that otherwise caused false
+  positives in minified JavaScript.
+- **Context for ambiguous formats:** the Twilio rule (`SK` + 32 hex) requires a nearby
+  `twilio`/`account_sid`/`auth_token`/`api_key` token, because a bare `SK`+hex string matches hashes
+  and generated ids.
+- **Placeholders** (`example`, `changeme`, `your_`, `required`, `invalid`, `{{`, …) ⇒ `SUPPRESSED`.
+  Placeholders are checked before the entropy gate, so the suppression is still recorded.
 - **Configured suppression:** `RECONNEXUS_SECRET_SUPPRESS_RULES` lists rule ids to suppress.
 - **Deduplication:** identical rule+value matches collapse into one finding with an `occurrences`
   count; findings remain per-artifact for provenance.
