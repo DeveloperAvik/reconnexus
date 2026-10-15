@@ -216,11 +216,11 @@ func TestCertDetailValidityBoundaries(t *testing.T) {
 	now := time.Now()
 	mk := func(nb, na time.Time) *x509.Certificate {
 		return &x509.Certificate{
-			Subject:   pkix.Name{CommonName: "x"},
-			Issuer:    pkix.Name{CommonName: "x"},
-			NotBefore: nb,
-			NotAfter:  na,
-			DNSNames:  []string{"example.com"},
+			Subject:      pkix.Name{CommonName: "x"},
+			Issuer:       pkix.Name{CommonName: "x"},
+			NotBefore:    nb,
+			NotAfter:     na,
+			DNSNames:     []string{"example.com"},
 			SerialNumber: big.NewInt(1),
 		}
 	}

@@ -153,7 +153,7 @@ func parseOneSpec(ctx context.Context, client *http.Client, pc ProviderContext, 
 	}
 	req.Header.Set("User-Agent", "reconnexus/0.5 (+https://github.com/anomalyco/opencode)")
 	req.Header.Set("Accept", "application/json, application/yaml, text/yaml, */*")
-	resp, derr := client.Do(req)
+	resp, derr := doRequest(ctx, client, pc.Limiter, req)
 	if derr != nil {
 		info.ParseStatus = "ERROR"
 		info.Error = telemetry.RedactString(derr.Error())

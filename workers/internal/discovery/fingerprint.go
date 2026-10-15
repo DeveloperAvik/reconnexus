@@ -69,7 +69,6 @@ func issuerHas(in fingerprintInput, needle string) (string, bool) {
 	return "", false
 }
 
-
 func anyOf(dets ...func(fingerprintInput) (string, bool)) func(fingerprintInput) (string, bool) {
 	return func(in fingerprintInput) (string, bool) {
 		for _, d := range dets {

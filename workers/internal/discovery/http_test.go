@@ -26,7 +26,7 @@ type funcResolver struct {
 func (f funcResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
 	return f.fn(ctx, host)
 }
-func (f funcResolver) LookupCNAME(context.Context, string) (string, error)   { return "", nil }
+func (f funcResolver) LookupCNAME(context.Context, string) (string, error)  { return "", nil }
 func (f funcResolver) LookupAddr(context.Context, string) ([]string, error) { return nil, nil }
 
 // httpPolicy authorizes the example.com registrable domain and explicitly authorizes only the

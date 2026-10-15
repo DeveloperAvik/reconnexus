@@ -1,0 +1,8 @@
+{
+  "dnsRecords": [
+    { "name": "a.example.com", "recordType": "A", "value": "93.184.216.34", "ttl": 300, "status": "NOERROR" },
+    { "name": "a.example.com", "recordType": "AAAA", "value": "2606:2800:220:1:248:1893:25c8:1946", "ttl": 300, "status": "NOERROR" },
+    { "name": "a.example.com", "recordType": "CNAME", "value": "edge.example.net", "ttl": 60, "status": "NOERROR" }
+  ],
+  "version": "fixture-1"
+}

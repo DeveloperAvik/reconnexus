@@ -4,6 +4,34 @@ All notable changes are documented here. This project distinguishes implemented 
 planned functionality; entries only describe what is actually implemented and tested.
 
 
+## [0.19.2] — Enforce request rate, track fixtures, fix CVE over-match
+
+### Fixed
+
+- **`limits.requestsPerSecond` is now enforced by every active provider.** Only RDAP paced its
+  lookups before; the HTTP probe, crawler, JS, API-spec, security-metadata, secret-scan and takeover
+  providers were bounded only by concurrency, so the authorized request rate could be exceeded. A
+  shared, non-bursting `rateLimiter` (`workers/internal/discovery/ratelimit.go`) now paces all
+  outgoing requests via `doRequest(...)`, carrying the policy rate through `ProviderContext`.
+- **NVD CVE ranges are filtered to the queried product.** A single CVE can list `cpeMatch` entries
+  for several products; the engine evaluated all of them, so a multi-product CVE could produce a
+  candidate for an unrelated component. Ranges are now restricted to the queried `vendor:product`
+  (CPE 2.3 and URI bindings both parsed).
+
+### Added
+
+- **Test fixtures are tracked.** The `test/fixtures/*` rule was removed from `.gitignore`, so the
+  conformance fixtures and secret-detection evaluation corpus are versioned and a clean checkout can
+  run the full suite.
+- **CI workflow** (`.github/workflows/ci.yml`): TypeScript type check, tests and scope conformance
+  against a live Postgres service, plus a separate Go job (`build`, `vet`, `test`).
+
+### Tests
+
+- Go: rate-limiter pacing / nil-unlimited / cancellation. TypeScript: NVD multi-product CVE keeps
+  only the queried product's range; CPE binding parsing. Totals: TypeScript 265 tests across 56
+  files; Go all packages; typecheck clean.
+
 ## [0.19.1] — Reduce subdomain-takeover and JS secret false positives
 
 ### Fixed

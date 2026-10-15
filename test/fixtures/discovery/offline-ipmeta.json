@@ -1,0 +1,4 @@
+[
+  { "ip": "203.0.113.10", "prefix": "203.0.113.0/24", "asn": 64512, "asnOrg": "Example Test Network", "networkName": "TESTNET", "country": "ZZ", "confidence": 0.9, "limitations": ["documentation range"] },
+  { "ip": "198.51.100.50", "prefix": "198.51.100.0/24", "asn": 64513, "asnOrg": "Example Test Network 2", "networkName": "TESTNET2", "country": "ZZ", "confidence": 0.9, "limitations": [] }
+]

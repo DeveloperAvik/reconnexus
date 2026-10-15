@@ -1,0 +1,13 @@
+https://example.com/
+https://example.com:443/
+http://example.com:80/path?b=2&a=1#frag
+https://WWW.Example.COM/Path?x=1
+https://sub.example.com/api/v1/users?id=5
+https://example.com/redirect?url=http://evil.example.net
+https://example.com/static/app.js
+https://example.com/admin/login
+https://example.com/.git/config
+https://example.com/wp-admin/
+ftp://example.com/file.txt
+not-a-url
+javascript:alert(1)

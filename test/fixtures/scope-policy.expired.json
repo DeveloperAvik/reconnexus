@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "policyId": "3f2504e0-4f89-41d3-9a0c-0305e82c3311",
+  "projectId": "3f2504e0-4f89-41d3-9a0c-0305e82c3312",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "AUTH-OLD",
+    "authorizedBy": "security-team",
+    "validFrom": "2020-01-01T00:00:00.000Z",
+    "validUntil": "2020-02-01T00:00:00.000Z",
+    "capabilities": ["PASSIVE", "ACTIVE_HTTP"]
+  },
+  "inScope": { "domains": [{ "value": "example.com", "includeSubdomains": true }], "hosts": [], "ips": [], "cidrs": [] },
+  "exclusions": { "domains": [], "hosts": [], "ips": [], "cidrs": [], "paths": [] },
+  "limits": { "maxConcurrency": 4, "requestsPerSecond": 5, "crawlDepth": 1, "maxRuntimeSeconds": 600, "maxArtifactBytes": 1048576 }
+}

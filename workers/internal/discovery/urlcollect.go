@@ -208,7 +208,7 @@ func (builtinCrawler) Run(ctx context.Context, pc ProviderContext) (ProviderResu
 					return
 				}
 				req.Header.Set("User-Agent", "reconnexus/0.4 (+https://github.com/anomalyco/opencode)")
-				resp, derr := client.Do(req)
+				resp, derr := doRequest(ctx, client, pc.Limiter, req)
 				if derr != nil || resp == nil {
 					mu.Lock()
 					if derr != nil {
@@ -479,7 +479,7 @@ func (builtinStatic) Run(ctx context.Context, pc ProviderContext) (ProviderResul
 			res.Coverage.Skipped++
 			continue
 		}
-		body, status, ferr := fetchText(ctx, client, robotsURL, maxBytes)
+		body, status, ferr := fetchText(ctx, client, pc.Limiter, robotsURL, maxBytes)
 		if ferr != nil {
 			res.Coverage.Failed++
 			res.Diagnostics = append(res.Diagnostics, "robots.txt "+origin+": "+truncate(ferr.Error(), 120))
@@ -534,7 +534,7 @@ func (builtinStatic) Run(ctx context.Context, pc ProviderContext) (ProviderResul
 			res.Coverage.Skipped++
 			continue
 		}
-		body, status, ferr := fetchText(ctx, client, sm, maxBytes)
+		body, status, ferr := fetchText(ctx, client, pc.Limiter, sm, maxBytes)
 		if ferr != nil || status != 200 {
 			res.Coverage.Failed++
 			continue
@@ -572,13 +572,13 @@ func (builtinStatic) Run(ctx context.Context, pc ProviderContext) (ProviderResul
 	return res, nil
 }
 
-func fetchText(ctx context.Context, client *http.Client, rawURL string, maxBytes int) (string, int, error) {
+func fetchText(ctx context.Context, client *http.Client, limiter *rateLimiter, rawURL string, maxBytes int) (string, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", 0, err
 	}
 	req.Header.Set("User-Agent", "reconnexus/0.4 (+https://github.com/anomalyco/opencode)")
-	resp, err := client.Do(req)
+	resp, err := doRequest(ctx, client, limiter, req)
 	if err != nil {
 		return "", 0, err
 	}

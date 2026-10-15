@@ -190,7 +190,7 @@ func probeOne(ctx context.Context, transport *http.Transport, requestTimeout tim
 	req.Header.Set("User-Agent", "reconnexus/0.3 (+https://github.com/anomalyco/opencode)")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
 
-	resp, err := client.Do(req)
+	resp, err := doRequest(ctx, client, pc.Limiter, req)
 	details := &HTTPDetails{ProbeStatus: ProbeOK, RedirectChain: chain.hops}
 	if err != nil {
 		// A denied redirect still returns the pre-redirect response; preserve its metadata.

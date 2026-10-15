@@ -1,0 +1,71 @@
+{
+  "policy": {
+    "schemaVersion": 1,
+    "policyId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+    "projectId": "3f2504e0-4f89-41d3-9a0c-0305e82c3302",
+    "policyVersion": 1,
+    "authorization": {
+      "reference": "AUTH-CONF-1",
+      "authorizedBy": "conformance",
+      "validFrom": "2020-01-01T00:00:00.000Z",
+      "validUntil": "2999-01-01T00:00:00.000Z",
+      "capabilities": ["PASSIVE", "DNS", "ACTIVE_HTTP", "INTERNAL_NETWORK"]
+    },
+    "inScope": {
+      "domains": [
+        { "value": "example.com", "includeSubdomains": true },
+        { "value": "example.org", "includeSubdomains": false }
+      ],
+      "hosts": ["api.example.net"],
+      "ips": ["203.0.113.10"],
+      "cidrs": ["198.51.100.0/24"]
+    },
+    "exclusions": {
+      "domains": [{ "value": "excluded.example.com", "includeSubdomains": true }],
+      "hosts": ["admin.example.com"],
+      "ips": ["203.0.113.11"],
+      "cidrs": ["198.51.100.128/25"],
+      "paths": ["/logout"]
+    },
+    "limits": {
+      "maxConcurrency": 8,
+      "requestsPerSecond": 10,
+      "crawlDepth": 2,
+      "maxRuntimeSeconds": 1800,
+      "maxArtifactBytes": 8388608
+    }
+  },
+  "now": "2026-01-01T00:00:00.000Z",
+  "cases": [
+    { "name": "in-scope subdomain", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "registrable-domain inference (includeSubdomains=false)", "kind": "HOST", "value": "www.example.org", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "deep subdomain of non-wildcard apex", "kind": "HOST", "value": "deep.www.example.org", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "lookalike suffix (notexample.com)", "kind": "HOST", "value": "notexample.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "NOT_IN_SCOPE" } },
+    { "name": "hyphen lookalike", "kind": "HOST", "value": "evil-example.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "NOT_IN_SCOPE" } },
+    { "name": "supdomain injection", "kind": "HOST", "value": "example.com.evil.net", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "NOT_IN_SCOPE" } },
+    { "name": "excluded host", "kind": "HOST", "value": "admin.example.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "EXCLUDED" } },
+    { "name": "excluded domain covers subdomain", "kind": "HOST", "value": "sub.excluded.example.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "EXCLUDED" } },
+    { "name": "excluded path", "kind": "URL", "value": "https://app.example.com/logout", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "EXCLUDED_PATH" } },
+    { "name": "allowed path", "kind": "URL", "value": "https://app.example.com/dashboard", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "exact host", "kind": "HOST", "value": "api.example.net", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "capability not permitted", "kind": "HOST", "value": "app.example.com", "capability": "SECURITY_CHECKS", "expected": { "allowed": false, "code": "CAPABILITY_NOT_PERMITTED" } },
+    { "name": "in-scope CIDR", "kind": "IP", "value": "198.51.100.50", "capability": "DNS", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "excluded CIDR", "kind": "IP", "value": "198.51.100.200", "capability": "DNS", "expected": { "allowed": false, "code": "EXCLUDED" } },
+    { "name": "excluded exact IP", "kind": "IP", "value": "203.0.113.11", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "EXCLUDED" } },
+    { "name": "explicitly authorized reserved IP", "kind": "IP", "value": "203.0.113.10", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "public IP not in scope", "kind": "IP", "value": "8.8.8.8", "capability": "DNS", "expected": { "allowed": false, "code": "NOT_IN_SCOPE" } },
+    { "name": "loopback denied", "kind": "IP", "value": "127.0.0.1", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "ipv4-mapped loopback denied", "kind": "IP", "value": "::ffff:127.0.0.1", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "resolved private address denied (rebinding)", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["10.0.0.5"], "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "resolved metadata address denied", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["169.254.169.254"], "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "resolved public address allowed", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["93.184.216.34"], "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "domain kind", "kind": "DOMAIN", "value": "example.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "url allowed", "kind": "URL", "value": "https://example.com/", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "invalid url", "kind": "URL", "value": "ftp://example.com/", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "INVALID_TARGET" } },
+    { "name": "expired authorization", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "authorizationOverride": { "validFrom": "2020-01-01T00:00:00.000Z", "validUntil": "2020-02-01T00:00:00.000Z" }, "expected": { "allowed": false, "code": "AUTHORIZATION_EXPIRED" } },
+    { "name": "not-yet-valid authorization", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "authorizationOverride": { "validFrom": "2998-01-01T00:00:00.000Z", "validUntil": "2999-01-01T00:00:00.000Z" }, "expected": { "allowed": false, "code": "AUTHORIZATION_NOT_YET_VALID" } },
+    { "name": "percent-encoded dot-segment reaches excluded path", "kind": "URL", "value": "https://app.example.com/%2e%2e/logout", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "EXCLUDED_PATH" } },
+    { "name": "percent-encoded dot-segment resolves to allowed path", "kind": "URL", "value": "https://app.example.com/a/%2e%2e/dashboard", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "encoded-slash is not a path separator", "kind": "URL", "value": "https://app.example.com/a%2F..%2Flogout", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } }
+  ]
+}

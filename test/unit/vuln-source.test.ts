@@ -3,6 +3,7 @@ import {
   CachingVulnerabilitySource,
   NvdVulnerabilitySource,
   StaticAdvisorySource,
+  cpeProductKey,
   kevCveSet,
   type AdvisoryRecord,
   type VulnerabilitySource,
@@ -82,6 +83,43 @@ describe("NVD source", () => {
     const r = await src.lookup({ productKey: "log4j", cpe: "cpe:2.3:a:apache:log4j:*:*", version: "2.14.1" });
     expect(r.status).toBe("SOURCE_UNAVAILABLE");
     expect(r.error).toMatch(/timeout/);
+  });
+
+  it("keeps only ranges for the queried product, not every product in the CVE", async () => {
+    // One CVE that matches two products: our query (apache:log4j) and an unrelated one.
+    const payload = {
+      vulnerabilities: [
+        {
+          cve: {
+            id: "CVE-2021-9999",
+            configurations: [
+              {
+                nodes: [
+                  {
+                    cpeMatch: [
+                      { vulnerable: true, criteria: "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*", versionStartIncluding: "2.0", versionEndExcluding: "2.15.0" },
+                      { vulnerable: true, criteria: "cpe:2.3:a:fasterxml:jackson-databind:*:*:*:*:*:*:*:*", versionStartIncluding: "0.0", versionEndExcluding: "9.9.9" },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const fetchMock = (async () => res(200, payload)) as unknown as typeof fetch;
+    const src = new NvdVulnerabilitySource({ fetch: fetchMock, retries: 0 });
+    const r = await src.lookup({ productKey: "log4j", cpe: "cpe:2.3:a:apache:log4j:*:*:*:*:*:*:*:*", version: "2.14.1" });
+    expect(r.advisories[0]!.ranges).toEqual([[{ op: ">=", version: "2.0" }, { op: "<", version: "2.15.0" }]]);
+    expect(r.advisories[0]!.affected).toBe(">= 2.0 < 2.15.0");
+    expect(r.advisories[0]!.affected).not.toContain("9.9.9");
+  });
+
+  it("parses cpe vendor:product in both the 2.3 and URI bindings", () => {
+    expect(cpeProductKey("cpe:2.3:a:apache:http_server:2.4.6:*:*:*:*:*:*:*")).toBe("apache:http_server");
+    expect(cpeProductKey("cpe:/a:nginx:nginx:1.18.0")).toBe("nginx:nginx");
+    expect(cpeProductKey("not-a-cpe")).toBe("");
   });
 
   it("extracts KEV ids from a catalog document", () => {

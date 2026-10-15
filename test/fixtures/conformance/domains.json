@@ -1,0 +1,36 @@
+{
+  "registrable": [
+    { "host": "example.com", "expected": "example.com" },
+    { "host": "www.example.com", "expected": "example.com" },
+    { "host": "a.b.example.com", "expected": "example.com" },
+    { "host": "EXAMPLE.COM.", "expected": "example.com" },
+    { "host": "example.co.uk", "expected": "example.co.uk" },
+    { "host": "www.example.co.uk", "expected": "example.co.uk" },
+    { "host": "sub.example.co.uk", "expected": "example.co.uk" },
+    { "host": "example.com.au", "expected": "example.com.au" },
+    { "host": "foo.bar.example.com.au", "expected": "example.com.au" },
+    { "host": "site.github.io", "expected": "site.github.io" },
+    { "host": "co.uk", "expected": "co.uk" },
+    { "host": "foo.internal", "expected": "foo.internal" },
+    { "host": "example.invalid", "expected": "example.invalid" },
+    { "host": "localhost", "expected": null },
+    { "host": "127.0.0.1", "expected": null },
+    { "host": "::1", "expected": null }
+  ],
+  "suffix": [
+    { "host": "example.com", "expected": "com" },
+    { "host": "www.example.co.uk", "expected": "co.uk" },
+    { "host": "a.example.com.au", "expected": "com.au" },
+    { "host": "co.uk", "expected": "co.uk" },
+    { "host": "site.github.io", "expected": "github.io" }
+  ],
+  "matching": [
+    { "host": "app.example.com", "value": "example.com", "includeSubdomains": true, "expected": true },
+    { "host": "example.com", "value": "example.com", "includeSubdomains": false, "expected": true },
+    { "host": "app.example.com", "value": "example.com", "includeSubdomains": false, "expected": false },
+    { "host": "notexample.com", "value": "example.com", "includeSubdomains": true, "expected": false },
+    { "host": "evil-example.com", "value": "example.com", "includeSubdomains": true, "expected": false },
+    { "host": "example.com.evil.net", "value": "example.com", "includeSubdomains": true, "expected": false },
+    { "host": "sub.example.org", "value": "example.org", "includeSubdomains": true, "expected": true }
+  ]
+}

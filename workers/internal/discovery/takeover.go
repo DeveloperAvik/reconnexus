@@ -126,7 +126,7 @@ func (builtinTakeover) Run(ctx context.Context, pc ProviderContext) (ProviderRes
 			defer wg.Done()
 			defer func() { <-sem }()
 			client, _ := newGuardedClient(transport, pc.Engine, timeout, job.MaxRedirects)
-			rec, checked := checkTakeover(ctx, resolver, client, raw, maxBytes)
+			rec, checked := checkTakeover(ctx, resolver, client, pc.Limiter, raw, maxBytes)
 			mu.Lock()
 			if rec != nil {
 				records = append(records, *rec)
@@ -147,7 +147,7 @@ func (builtinTakeover) Run(ctx context.Context, pc ProviderContext) (ProviderRes
 	return res, nil
 }
 
-func checkTakeover(ctx context.Context, resolver hostResolver, client *http.Client, rawURL string, maxBytes int) (*Record, bool) {
+func checkTakeover(ctx context.Context, resolver hostResolver, client *http.Client, limiter *rateLimiter, rawURL string, maxBytes int) (*Record, bool) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Hostname() == "" {
 		return nil, false
@@ -169,7 +169,7 @@ func checkTakeover(ctx context.Context, resolver hostResolver, client *http.Clie
 		return nil, false // points at a service we do not fingerprint; stay quiet
 	}
 
-	httpStatus, body, fetchErr := fetchForTakeover(ctx, client, rawURL, maxBytes)
+	httpStatus, body, fetchErr := fetchForTakeover(ctx, client, limiter, rawURL, maxBytes)
 	info := &TakeoverInfo{
 		Host:       host,
 		CNAME:      cname,
@@ -220,13 +220,13 @@ func checkTakeover(ctx context.Context, resolver hostResolver, client *http.Clie
 	}, true
 }
 
-func fetchForTakeover(ctx context.Context, client *http.Client, rawURL string, maxBytes int) (*int, string, error) {
+func fetchForTakeover(ctx context.Context, client *http.Client, limiter *rateLimiter, rawURL string, maxBytes int) (*int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	req.Header.Set("User-Agent", "reconnexus/0.12 (+https://github.com/anomalyco/opencode)")
-	resp, derr := client.Do(req)
+	resp, derr := doRequest(ctx, client, limiter, req)
 	if derr != nil || resp == nil {
 		if derr == nil {
 			derr = fmt.Errorf("no response")

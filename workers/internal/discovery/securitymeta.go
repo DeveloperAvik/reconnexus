@@ -3,8 +3,8 @@ package discovery
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/x509"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"net/http"
 	"strconv"
@@ -86,7 +86,7 @@ func (builtinSecurityMeta) Run(ctx context.Context, pc ProviderContext) (Provide
 			defer wg.Done()
 			defer func() { <-sem }()
 			client, _ := newGuardedClient(transport, pc.Engine, timeout, job.MaxRedirects)
-			recs, ok := observeService(ctx, client, raw, maxBytes)
+			recs, ok := observeService(ctx, client, pc.Limiter, raw, maxBytes)
 			mu.Lock()
 			records = append(records, recs...)
 			if ok {
@@ -105,7 +105,7 @@ func (builtinSecurityMeta) Run(ctx context.Context, pc ProviderContext) (Provide
 	return res, nil
 }
 
-func observeService(ctx context.Context, client *http.Client, raw string, maxBytes int) ([]Record, bool) {
+func observeService(ctx context.Context, client *http.Client, limiter *rateLimiter, raw string, maxBytes int) ([]Record, bool) {
 	canon, err := matching.CanonicalURL(raw)
 	if err != nil {
 		return []Record{metaRecord(raw, "", CatHeader, "response", MetaCollectionFailed, false, "", nil, nil, "invalid URL", "PARSE")}, false
@@ -116,7 +116,7 @@ func observeService(ctx context.Context, client *http.Client, raw string, maxByt
 		return []Record{metaRecord(canon, host, CatHeader, "response", MetaCollectionFailed, false, "", nil, nil, err.Error(), "REQUEST")}, false
 	}
 	req.Header.Set("User-Agent", "reconnexus/0.6 (+https://github.com/anomalyco/opencode)")
-	resp, derr := client.Do(req)
+	resp, derr := doRequest(ctx, client, limiter, req)
 	if derr != nil {
 		return []Record{metaRecord(canon, host, CatHeader, "response", MetaCollectionFailed, false, "", nil, nil, telemetry.RedactString(derr.Error()), "TRANSPORT")}, false
 	}

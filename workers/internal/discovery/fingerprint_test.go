@@ -46,9 +46,9 @@ func TestFingerprintServerHeader(t *testing.T) {
 func TestFingerprintMultipleCompetingHypotheses(t *testing.T) {
 	hits := Fingerprint(fingerprintInput{
 		Headers: map[string]string{
-			"server":        "nginx",
-			"x-powered-by":  "PHP/8.1",
-			"cf-ray":        "8a1b2c3d4e5f-LHR",
+			"server":          "nginx",
+			"x-powered-by":    "PHP/8.1",
+			"cf-ray":          "8a1b2c3d4e5f-LHR",
 			"x-shopify-stage": "",
 		},
 		Body:    strings.ToLower("<html><body><div data-reactroot></div><link href=\"/wp-content/a.css\"></body></html>"),

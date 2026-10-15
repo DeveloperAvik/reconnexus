@@ -128,7 +128,7 @@ func (builtinSecretScan) Run(ctx context.Context, pc ProviderContext) (ProviderR
 			defer wg.Done()
 			defer func() { <-sem }()
 			client, _ := newGuardedClient(transport, pc.Engine, timeout, job.MaxRedirects)
-			recs, ok := scanArtifact(ctx, client, raw, maxBytes, key, suppressed)
+			recs, ok := scanArtifact(ctx, client, pc.Limiter, raw, maxBytes, key, suppressed)
 			mu.Lock()
 			records = append(records, recs...)
 			if ok {
@@ -158,7 +158,7 @@ func suppressedRules() map[string]bool {
 	return out
 }
 
-func scanArtifact(ctx context.Context, client *http.Client, raw string, maxBytes int, key []byte, suppressed map[string]bool) ([]Record, bool) {
+func scanArtifact(ctx context.Context, client *http.Client, limiter *rateLimiter, raw string, maxBytes int, key []byte, suppressed map[string]bool) ([]Record, bool) {
 	canon, err := matching.CanonicalURL(raw)
 	if err != nil {
 		return artifactRecord(raw, "", SecretArtifactAnalysisFailed, 0, 0, false, "invalid artifact URL"), false
@@ -169,7 +169,7 @@ func scanArtifact(ctx context.Context, client *http.Client, raw string, maxBytes
 		return artifactRecord(canon, host, SecretArtifactAnalysisFailed, 0, 0, false, "request build failed"), false
 	}
 	req.Header.Set("User-Agent", "reconnexus/0.7 (+https://github.com/anomalyco/opencode)")
-	resp, derr := client.Do(req)
+	resp, derr := doRequest(ctx, client, limiter, req)
 	if derr != nil {
 		return artifactRecord(canon, host, SecretArtifactAnalysisFailed, 0, 0, len(key) > 0, telemetry.RedactString(derr.Error())), false
 	}

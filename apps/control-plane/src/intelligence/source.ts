@@ -153,10 +153,31 @@ function cvssFrom(metrics: unknown): CvssScore | undefined {
   return undefined;
 }
 
-/** Extract machine-evaluable affected ranges from an NVD `configurations` array. */
-function rangesFromConfigurations(configurations: unknown): { ranges: AdvisoryRecord["ranges"]; affected: string } {
+/**
+ * The `vendor:product` identity of a CPE string, or "" when it cannot be determined. Handles the
+ * CPE 2.3 formatted-string binding (`cpe:2.3:part:vendor:product:…`) and the older URI binding
+ * (`cpe:/part:vendor:product:…`).
+ */
+export function cpeProductKey(cpe: string): string {
+  const parts = (cpe ?? "").split(":");
+  if (parts[0] !== "cpe") return "";
+  if (parts[1] === "2.3") return `${(parts[3] ?? "").toLowerCase()}:${(parts[4] ?? "").toLowerCase()}`;
+  if ((parts[1] ?? "").startsWith("/")) return `${(parts[2] ?? "").toLowerCase()}:${(parts[3] ?? "").toLowerCase()}`;
+  return "";
+}
+
+/**
+ * Extract machine-evaluable affected ranges from an NVD `configurations` array.
+ *
+ * A single CVE can list `cpeMatch` entries for several products (and for `AND`-nodes). Only the
+ * ranges whose CPE belongs to the queried `vendor:product` are kept, so a multi-product CVE cannot
+ * produce a candidate for an unrelated component. When either identity cannot be parsed the entry is
+ * kept (to avoid silently dropping a range).
+ */
+function rangesFromConfigurations(configurations: unknown, queryCpe: string | null): { ranges: AdvisoryRecord["ranges"]; affected: string } {
   const out: AdvisoryRecord["ranges"] = [];
   const human: string[] = [];
+  const want = cpeProductKey(queryCpe ?? "");
   if (!Array.isArray(configurations)) return { ranges: out, affected: "" };
   for (const cfg of configurations as Array<Record<string, unknown>>) {
     const nodes = cfg.nodes;
@@ -166,6 +187,9 @@ function rangesFromConfigurations(configurations: unknown): { ranges: AdvisoryRe
       if (!Array.isArray(matches)) continue;
       for (const match of matches as Array<Record<string, unknown>>) {
         if (match.vulnerable === false) continue;
+        const criteria = typeof match.criteria === "string" ? match.criteria : "";
+        const got = cpeProductKey(criteria);
+        if (want && got && got !== want) continue; // a different product's range
         const group: Array<{ op: ">=" | "<=" | ">" | "<" | "="; version: string }> = [];
         const si = match.versionStartIncluding;
         const se = match.versionStartExcluding;
@@ -261,7 +285,7 @@ export class NvdVulnerabilitySource implements VulnerabilitySource {
     for (const item of json.vulnerabilities as Array<Record<string, unknown>>) {
       const cve = item.cve as Record<string, unknown> | undefined;
       if (!cve || typeof cve.id !== "string") continue;
-      const { ranges, affected } = rangesFromConfigurations(cve.configurations);
+      const { ranges, affected } = rangesFromConfigurations(cve.configurations, query.cpe);
       const cvss = cvssFrom(cve.metrics);
       out.push({
         cveId: cve.id,

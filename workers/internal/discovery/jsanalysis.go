@@ -125,7 +125,7 @@ func analyseOne(ctx context.Context, client *http.Client, pc ProviderContext, ra
 	}
 	req.Header.Set("User-Agent", "reconnexus/0.5 (+https://github.com/anomalyco/opencode)")
 	req.Header.Set("Accept", "application/javascript, text/javascript, */*")
-	resp, derr := client.Do(req)
+	resp, derr := doRequest(ctx, client, pc.Limiter, req)
 	artifact := JsArtifactInfo{URL: rawURL, CanonicalURL: canon, DiscoveryMethod: "stage05"}
 	if derr != nil {
 		artifact.Status = ArtifactError
@@ -231,7 +231,7 @@ func resolveSourceMap(ctx context.Context, client *http.Client, pc ProviderConte
 		sm.Status = "ERROR"
 		return
 	}
-	resp, err := client.Do(req)
+	resp, err := doRequest(ctx, client, pc.Limiter, req)
 	if err != nil {
 		sm.Status = "ERROR"
 		sm.Error = telemetry.RedactString(err.Error())

@@ -30,6 +30,9 @@ type ProviderContext struct {
 	Job    Job
 	Engine *scope.Engine
 	Logger *telemetry.Logger
+	// Limiter enforces the policy's requestsPerSecond across the provider's concurrent requests.
+	// It may be nil (no rate limit), which all callers handle.
+	Limiter *rateLimiter
 }
 
 // ProviderResult is what a provider returns.

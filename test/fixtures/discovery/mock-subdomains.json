@@ -1,0 +1,14 @@
+{
+  "hosts": [
+    "a.example.com",
+    "b.example.com",
+    "A.EXAMPLE.COM.",
+    "dup.example.com",
+    "dup.example.com",
+    "bad host",
+    "10.0.0.1",
+    "x.example.com:8443"
+  ],
+  "version": "9.9.9",
+  "diagnostics": ["synthetic fixture"]
+}

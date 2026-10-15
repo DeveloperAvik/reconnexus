@@ -268,7 +268,7 @@ func TestBlockedWhenCapabilityMissing(t *testing.T) {
 func TestOfflineIpMetadataNormalization(t *testing.T) {
 	job := Job{SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "03", JobKey: "03ip",
 		Kind: "IP_METADATA", Provider: "offline-ipmeta", Policy: testPolicy(),
-		Inputs: Inputs{Addresses: []AddressInput{{IP: "203.0.113.10", ViaHost: "a.example.com"}}},
+		Inputs:      Inputs{Addresses: []AddressInput{{IP: "203.0.113.10", ViaHost: "a.example.com"}}},
 		FixturePath: fixture("offline-ipmeta.json")}
 	res, _ := Run(context.Background(), job, nil)
 	if res.Status != StatusSucceeded {
@@ -294,7 +294,7 @@ func TestOfflineIpMetadataNormalization(t *testing.T) {
 func TestIpMetadataOutOfScopeSkipped(t *testing.T) {
 	job := Job{SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "03", JobKey: "03ip",
 		Kind: "IP_METADATA", Provider: "offline-ipmeta", Policy: testPolicy(),
-		Inputs: Inputs{Addresses: []AddressInput{{IP: "203.0.113.10", ViaHost: "evil.other.net"}}},
+		Inputs:      Inputs{Addresses: []AddressInput{{IP: "203.0.113.10", ViaHost: "evil.other.net"}}},
 		FixturePath: fixture("offline-ipmeta.json")}
 	res, _ := Run(context.Background(), job, nil)
 	if res.Status != StatusSkipped {
@@ -326,8 +326,12 @@ func (f fakeResolver) LookupHost(_ context.Context, host string) ([]string, erro
 	}
 	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 }
-func (f fakeResolver) LookupCNAME(_ context.Context, host string) (string, error) { return f.cname[host], nil }
-func (f fakeResolver) LookupAddr(_ context.Context, addr string) ([]string, error) { return f.addrs[addr], nil }
+func (f fakeResolver) LookupCNAME(_ context.Context, host string) (string, error) {
+	return f.cname[host], nil
+}
+func (f fakeResolver) LookupAddr(_ context.Context, addr string) ([]string, error) {
+	return f.addrs[addr], nil
+}
 
 func withResolver(t *testing.T, r hostResolver) {
 	t.Helper()
@@ -418,5 +422,5 @@ type wildcardResolver struct{}
 func (wildcardResolver) LookupHost(_ context.Context, host string) ([]string, error) {
 	return []string{"93.184.216.34"}, nil
 }
-func (wildcardResolver) LookupCNAME(_ context.Context, host string) (string, error) { return host, nil }
+func (wildcardResolver) LookupCNAME(_ context.Context, host string) (string, error)  { return host, nil }
 func (wildcardResolver) LookupAddr(_ context.Context, addr string) ([]string, error) { return nil, nil }

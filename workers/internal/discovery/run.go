@@ -345,7 +345,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 		}
 	}
 
-	pc := ProviderContext{Job: job, Engine: engine, Logger: logger}
+	pc := ProviderContext{Job: job, Engine: engine, Logger: logger, Limiter: newRateLimiter(job.Limits.RequestsPerSecond)}
 	pr, err := prov.Run(ctx, pc)
 	if err != nil {
 		base.Status = StatusFailed
