@@ -21,7 +21,7 @@ core.
 
 | Area | Status |
 | --- | --- |
-| CLI command hierarchy (`scan`, `scope`, `assets`, `urls`, `apis`, `secrets`, `findings`, `coverage`, `report`, `providers`, `config`, `doctor`) | ✅ registered; implemented commands work, others return `NOT_IMPLEMENTED` |
+| CLI command hierarchy (`scan`, `scope`, `assets`, `urls`, `apis`, `secrets`, `findings`, `coverage`, `report`, `providers`, `config`, `doctor`) | ✅ registered and implemented |
 | Structured JSON output (`--json`) and human output | ✅ |
 | Layered, versioned configuration + validation | ✅ |
 | Scope-policy engine (10 enforcement checks, TS + independent Go mirror) | ✅ |

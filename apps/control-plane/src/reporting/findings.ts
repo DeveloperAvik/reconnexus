@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ReportFinding, ReportFindingTotals, ReportSecretFinding, ReportTakeover } from "@reconnexus/contracts";
+import type { Repository } from "../repository.js";
 
 /**
  * Derivation of reportable findings from persisted candidate records.
@@ -202,6 +203,65 @@ export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportT
     if (a.validation !== b.validation) return a.validation < b.validation ? -1 : 1;
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
   });
+}
+
+/**
+ * Loads a scan's secret, takeover and security-metadata records from the repository and reduces
+ * them to the same finding list the `report` command embeds. Shared by `report` and the standalone
+ * `findings` command so both derive findings from one place rather than two independent readings
+ * of the persisted rows drifting apart.
+ */
+export async function loadScanFindings(repo: Repository, scanId: string): Promise<ReportFinding[]> {
+  const [secretRows, takeoverRows, securityMetaRows] = await Promise.all([
+    repo.listSecretFindings(scanId),
+    repo.listTakeoverCandidates(scanId),
+    repo.listSecurityMetadata(scanId, 5000),
+  ]);
+
+  const secretFindings: ReportSecretFinding[] = secretRows
+    .map((r) => {
+      const d = r.data as { ruleId?: string; category?: string; status?: string; confidence?: number; host?: string; location?: string; redactedSnippet?: string };
+      return {
+        ruleId: d.ruleId ?? "unknown",
+        category: d.category ?? "OTHER",
+        status: d.status ?? "CANDIDATE",
+        confidence: typeof d.confidence === "number" ? d.confidence : 0,
+        artifact: r.artifact,
+        host: d.host ?? "",
+        location: d.location ?? "",
+        redactedSnippet: d.redactedSnippet ?? "",
+      };
+    })
+    .sort((a, b) => (a.ruleId + a.artifact + a.location < b.ruleId + b.artifact + b.location ? -1 : 1));
+
+  const takeoverCandidates: ReportTakeover[] = takeoverRows
+    .map((r) => {
+      const d = r.data as { cname?: string; service?: string; status?: string; confidence?: number; httpStatus?: number | null; evidence?: string };
+      return {
+        host: r.host,
+        cname: d.cname ?? "",
+        service: d.service ?? "",
+        status: d.status ?? "CANDIDATE",
+        confidence: typeof d.confidence === "number" ? d.confidence : 0,
+        httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null,
+        evidence: d.evidence ?? "",
+      };
+    })
+    .sort((a, b) => (a.host < b.host ? -1 : 1));
+
+  const securityFindingInputs: SecurityMetadataFindingInput[] = securityMetaRows.map((r) => {
+    const d = (r.data ?? {}) as { category?: string; name?: string; status?: string; url?: string; detail?: unknown };
+    return {
+      service: r.service,
+      category: d.category ?? "",
+      name: d.name ?? "",
+      status: d.status ?? "",
+      url: d.url ?? r.service,
+      detail: (typeof d.detail === "object" && d.detail !== null ? d.detail : {}) as Record<string, unknown>,
+    };
+  });
+
+  return buildFindings(secretFindings, takeoverCandidates, insecureCookieFindings(securityFindingInputs));
 }
 
 /** Counts by severity and validation. Always includes every key, so zero is explicit. */

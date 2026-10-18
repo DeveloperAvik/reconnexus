@@ -55,8 +55,9 @@ enforcement.
 
 ## Residual risks
 
-- Stages 04–12 are not implemented, so the engine currently gates Stage 00 and the Phase 2
-  discovery stages (01–03). It is wired into live provider execution by the worker.
+- This document was written while only stages 00–03 were implemented, so its examples focus on
+  Stage 00 and the Phase 2 discovery stages (01–03); the scope engine gates every active stage
+  through 14 the same way, wired into live provider execution by the worker.
 - Registrable-domain parsing uses the Public Suffix List in **both** engines: `tldts` in
   TypeScript and `golang.org/x/net/publicsuffix` in Go. Agreement is enforced by the shared
   conformance fixtures and the cross-language conformance test.

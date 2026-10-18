@@ -1,8 +1,12 @@
 # Discovery Pipeline (Phase 2)
 
 Phase 2 implements stages **01 (target intelligence)**, **02 (subdomain discovery)** and
-**03 (DNS / infrastructure correlation)**. Stages 04–12 are **not implemented** and are marked
-`SKIPPED` in every scan; this is reported rather than hidden.
+**03 (DNS / infrastructure correlation)**; this document covers that slice of the pipeline in
+detail. The pipeline has since grown well past Phase 2 — stages 04–14 (HTTP probing, URL/JS/API
+intelligence, security metadata, secret detection, correlation, subdomain takeover, login/cPanel
+finding and reporting) are implemented; see [implementation-plan.md](../implementation-plan.md)
+for their current status and the other `docs/architecture/*.md` files for their designs. A stage
+that fails or is skipped in a given run is still reported as such rather than hidden.
 
 ## Execution model
 

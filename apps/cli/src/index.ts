@@ -29,7 +29,7 @@ import { reportCommand } from "./commands/report.js";
 import { takeoverCommand } from "./commands/takeover.js";
 import { adminCommand, cpanelCommand } from "./commands/finder.js";
 import { changesCommand } from "./commands/changes.js";
-import { notImplementedCommand } from "./commands/stubs.js";
+import { findingsCommand } from "./commands/findings.js";
 
 function applyColorMode(program: Command): void {
   const mode = (program.opts().color as string | undefined) ?? "auto";
@@ -564,14 +564,26 @@ function buildProgram(): Command {
       ),
     );
 
-  // Not-yet-implemented groups
-  for (const group of ["findings"]) {
-    program
-      .command(`${group} [args...]`)
-      .description(`${group} (not implemented in this build)`)
-      .allowUnknownOption()
-      .action(() => run(group, program, (ctx) => notImplementedCommand(group)(ctx)));
-  }
+  // Findings (derived from secret/takeover/security-metadata candidates; see `report`)
+  program
+    .command("findings <scanId>")
+    .description("list the scan's redacted findings (same list embedded in `report`)")
+    .option("--category <category>", "filter by finding category")
+    .option("--severity <severity>", "filter by severity (CRITICAL/HIGH/MEDIUM/LOW/INFO)")
+    .option("--validation <state>", "filter by validation state (SUSPECTED/INDETERMINATE/REJECTED)")
+    .option("--subject <substr>", "filter by affected-asset substring")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("findings", program, (ctx) =>
+        findingsCommand(ctx, id, {
+          ...(opts.category ? { category: opts.category } : {}),
+          ...(opts.severity ? { severity: opts.severity } : {}),
+          ...(opts.validation ? { validation: opts.validation } : {}),
+          ...(opts.subject ? { subject: opts.subject } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
 
   program.configureOutput({
     writeErr: (str) => process.stderr.write(str),
