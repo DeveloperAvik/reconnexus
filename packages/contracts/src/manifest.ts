@@ -16,8 +16,10 @@ export const StageId = {
   CORRELATION: "11-correlation",
   REPORTING: "12-reporting",
   // Numeric labels are stable identifiers; the execution order is `OrderedStages` below
-  // (takeover runs after correlation and before reporting so the report includes its findings).
+  // (takeover and login-interface discovery run after correlation and before reporting so the
+  // report includes their findings).
   TAKEOVER: "13-subdomain-takeover",
+  LOGIN_FINDER: "14-login-finder",
 } as const;
 export type StageIdValue = (typeof StageId)[keyof typeof StageId];
 
@@ -35,6 +37,7 @@ export const OrderedStages: StageIdValue[] = [
   StageId.SECURITY_CHECKS,
   StageId.CORRELATION,
   StageId.TAKEOVER,
+  StageId.LOGIN_FINDER,
   StageId.REPORTING,
 ];
 

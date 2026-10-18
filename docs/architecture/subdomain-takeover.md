@@ -10,7 +10,7 @@ otherwise interact with the third-party service.
 `OrderedStages` runs it after correlation and **before reporting** so reports include its findings:
 
 ```
-… 10-security-checks → 11-correlation → 13-subdomain-takeover → 12-reporting
+… 10-security-checks → 11-correlation → 13-subdomain-takeover → 14-login-finder → 12-reporting
 ```
 
 Numeric labels are stable identifiers; execution order is the `OrderedStages` array. The orchestrator

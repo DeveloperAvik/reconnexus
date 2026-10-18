@@ -39,6 +39,8 @@ emitted by `reconnexus providers matrix` (`--json` for scripting).
 | `builtin-api` | 08 | API_DISCOVERY | ACTIVE | OpenAPI/Swagger JSON+YAML. |
 | `builtin-secret-scan` | 09 | SECRET_SCAN | ACTIVE | Re-collects eligible artifacts in-memory; redacted findings only. |
 | `builtin-security-meta` | 10 | SECURITY_CHECKS | ACTIVE | TLS/HSTS/headers/cookie attributes/CORS/content-type. |
+| `builtin-takeover` | 13 | TAKEOVER_CHECK | ACTIVE | CNAME fingerprints + one bounded GET per host; candidate-only. |
+| `builtin-login-finder` | 14 | ACTIVE_HTTP | ACTIVE | Fixed admin-login and cPanel/WHM/webmail path/port probes; read-only. |
 | `offline-ipmeta`, `mock`, `mock-url` | — | — | NONE | Deterministic test fixtures. |
 
 Built-in providers are **always available** (no external dependency) and are the trusted default

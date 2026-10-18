@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policyId": "aa7f8308-70c3-4ca5-b0cd-4136625cbb80",
+  "projectId": "57980845-32de-4afc-b3f3-42744cb3477d",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "rf4",
+    "authorizedBy": "you",
+    "validFrom": "2026-10-16T12:29:01.177Z",
+    "validUntil": "2027-01-14T12:29:01.177Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "euro.com.pk",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

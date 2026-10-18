@@ -424,3 +424,39 @@ func (wildcardResolver) LookupHost(_ context.Context, host string) ([]string, er
 }
 func (wildcardResolver) LookupCNAME(_ context.Context, host string) (string, error)  { return host, nil }
 func (wildcardResolver) LookupAddr(_ context.Context, addr string) ([]string, error) { return nil, nil }
+
+// Early returns (unknown provider, blocked capability, all inputs out of scope) must still emit the
+// contract's array fields. A nil argv used to marshal as null, which made the control plane reject
+// the entire result with a schema error and hide the real cause.
+func TestEarlyReturnResultSatisfiesContractShape(t *testing.T) {
+	job := Job{
+		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "14", JobKey: "14",
+		Kind: "LOGIN_FINDER", Provider: "does-not-exist", Policy: testPolicy(),
+		Inputs: Inputs{URLs: []string{"https://example.com/"}},
+	}
+	res, err := Run(context.Background(), job, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusBlocked {
+		t.Fatalf("status=%s want BLOCKED (diagnostics=%v)", res.Status, res.Diagnostics)
+	}
+	if res.Execution.Argv == nil {
+		t.Fatal("execution.argv is nil on an early return")
+	}
+	raw, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatal(err)
+	}
+	var exec map[string]json.RawMessage
+	if err := json.Unmarshal(obj["execution"], &exec); err != nil {
+		t.Fatal(err)
+	}
+	if string(exec["argv"]) == "null" {
+		t.Fatalf("execution.argv marshalled as null: %s", raw)
+	}
+}

@@ -462,3 +462,24 @@ func TestMockURLProviderDeduplicatesAndClassifies(t *testing.T) {
 		t.Errorf("dot-segment URL not canonicalized; got %v", keysOf(got))
 	}
 }
+
+// A 404 robots.txt/sitemap.xml is a normal "no such file" answer and must not fail the provider
+// (or make the URL-collection stage PARTIAL) when no other collection error occurred.
+func TestStaticMissingRobotsAndSitemapIsNotFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+
+	res, err := Run(context.Background(), urlJob([]string{srv.URL + "/"}, nil, func(j *Job) { j.Provider = "builtin-static" }), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != StatusSucceeded {
+		t.Fatalf("status=%s want SUCCEEDED (coverage=%+v diagnostics=%v)", res.Status, res.Coverage, res.Diagnostics)
+	}
+	if res.Coverage.Failed != 0 {
+		t.Fatalf("coverage.failed=%d want 0", res.Coverage.Failed)
+	}
+}

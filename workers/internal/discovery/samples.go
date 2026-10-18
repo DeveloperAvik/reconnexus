@@ -16,6 +16,7 @@ var RecordTypes = []string{
 	TypeSecretCandidate,
 	TypeSecretScanArtifact,
 	TypeTakeoverCandidate,
+	TypeLoginInterface,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -87,6 +88,11 @@ func SampleRecords() []Record {
 			Status: TakeoverSuspected, Confidence: 0.8, HTTPStatus: &status,
 			Evidence:     "CNAME app.example.com -> app.example.com.github.io (GitHub Pages); unclaimed marker matched",
 			EvidenceType: "UNCLAIMED_MARKER",
+		}},
+		{Type: TypeLoginInterface, URL: "https://app.example.com/admin/login", Host: "app.example.com", Provider: "builtin-login-finder", Source: "login-finder", Login: &LoginInterfaceInfo{
+			Kind: LoginKindAdmin, Status: LoginDetected, Confidence: 0.85,
+			FinalURL: "https://app.example.com/admin/login", HTTPStatus: &status, Title: "Admin Login",
+			Evidence: "HTTP 200; password form present; title \"Admin Login\"", EvidenceType: "LOGIN_FORM",
 		}},
 	}
 }

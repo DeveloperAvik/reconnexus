@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "defaultPolicyFile": "./policies/www.agoda.com.json",
+  "defaultPolicyFile": "./policies/amazon.com.json",
   "logging": {
     "level": "info",
     "format": "pretty"

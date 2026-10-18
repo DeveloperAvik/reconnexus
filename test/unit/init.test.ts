@@ -43,6 +43,38 @@ describe("reconnexus init", () => {
     expect(policy.authorization.reference).toBe("AUTH-1"); // unchanged, not clobbered
   });
 
+  it("updates defaultPolicyFile in an existing config without clobbering other settings", async () => {
+    const other = mkdtempSync(join(tmpdir(), "reconnexus-init-default-"));
+    try {
+      const configPath = join(other, "reconnexus.config.json");
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          schemaVersion: 1,
+          defaultPolicyFile: "./policies/old.example.json",
+          logging: { level: "debug", format: "json" },
+          database: { url: "postgres://localhost:5432/custom" },
+        }),
+      );
+      const r = await initCommand(ctx, { domain: "https://dunya.com.pk/", authorizedBy: "you", reference: "Avik", cwd: other });
+      expect(r.exitCode).toBe(0);
+      const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+        defaultPolicyFile: string;
+        logging: { level: string };
+        database: { url: string };
+      };
+      expect(config.defaultPolicyFile).toBe("./policies/dunya.com.pk.json");
+      expect(config.logging.level).toBe("debug");
+      expect(config.database.url).toBe("postgres://localhost:5432/custom");
+      expect((r.data as { configUpdated: boolean }).configUpdated).toBe(true);
+      // The new default policy actually authorizes the requested target.
+      const policy = ScopePolicySchema.parse(JSON.parse(readFileSync(join(other, "policies", "dunya.com.pk.json"), "utf8")));
+      expect(policy.inScope.domains[0]?.value).toBe("dunya.com.pk");
+    } finally {
+      rmSync(other, { recursive: true, force: true });
+    }
+  });
+
   it("refuses when multiple policies are present", () => {
     writeFileSync(join(dir, "policies", "second.example.net.json"), JSON.stringify({ schemaVersion: 1 }));
     expect(() => resolvePolicy(undefined, undefined, dir)).toThrow(/multiple scope policies/);

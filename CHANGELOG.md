@@ -4,6 +4,40 @@ All notable changes are documented here. This project distinguishes implemented 
 planned functionality; entries only describe what is actually implemented and tested.
 
 
+## [0.20.0] — Admin login & cPanel finder
+
+### Added
+
+- **Stage `14-login-finder`** (`builtin-login-finder`, capability `ACTIVE_HTTP`): probes a fixed,
+  bounded set of administrative login paths and cPanel/WHM/webmail paths and ports on origins
+  observed during HTTP probing. Read-only: unauthenticated GET only, no credentials submitted.
+- **`LOGIN_INTERFACE` record** with `kind` (`ADMIN`/`CPANEL`), status (`DETECTED`/`POSSIBLE`),
+  confidence, HTTP status, final URL, title and redacted evidence. Persisted as `login-interface`
+  observations on `URL` assets.
+- **`admin <scanId>`** and **`cpanel <scanId>`** CLI commands with `--status`, `--host`,
+  `--confidence` and `--limit` filters, plus `--login-providers` on `scan run`/`resume`.
+- Scope and safety: every candidate URL is reauthorized (including path exclusions), the shared
+  rate limiter paces requests, and redirects use the connection-bound transport with per-hop
+  reauthorization. Speculative control-panel ports that refuse connections are counted as skipped.
+
+### Fixed
+
+- **Early-return worker results now satisfy the discovery contract.** Unknown providers, blocked
+  capabilities and all-out-of-scope inputs returned `execution.argv: null`, so the control plane
+  rejected the entire result with a schema error and hid the real reason. All return paths now
+  normalize array fields.
+- **Missing `robots.txt`/`sitemap.xml` is no longer a provider failure.** `builtin-static` treats
+  4xx responses (typically 404) as not-found coverage, so a normal absence no longer makes the
+  URL-collection stage `PARTIAL`.
+- Rebuild the worker after updating: `make worker-build`.
+
+### Tests
+
+- Go: admin and cPanel detection, generic-page rejection, path-exclusion enforcement, early-return
+  contract shape, and 404 robots/sitemap handling.
+- TypeScript: record contract and DB-backed stage/CLI integration (skipped when Postgres is not
+  available).
+
 ## [0.19.2] — Enforce request rate, track fixtures, fix CVE over-match
 
 ### Fixed

@@ -508,7 +508,13 @@ func (builtinStatic) Run(ctx context.Context, pc ProviderContext) (ProviderResul
 				}
 			}
 			res.Coverage.Succeeded++
+		} else if status >= 400 && status < 500 {
+			// A missing robots.txt (typically 404) is a complete, normal answer, not a provider
+			// failure. Treat 4xx as not-found coverage so it cannot make the whole stage PARTIAL.
+			res.Coverage.Skipped++
+			res.Diagnostics = append(res.Diagnostics, fmt.Sprintf("robots.txt %s not available (HTTP %d)", origin, status))
 		} else {
+			res.Coverage.Failed++
 			res.Diagnostics = append(res.Diagnostics, fmt.Sprintf("robots.txt %s returned %d", origin, status))
 		}
 	}
@@ -535,8 +541,18 @@ func (builtinStatic) Run(ctx context.Context, pc ProviderContext) (ProviderResul
 			continue
 		}
 		body, status, ferr := fetchText(ctx, client, pc.Limiter, sm, maxBytes)
-		if ferr != nil || status != 200 {
+		if ferr != nil {
 			res.Coverage.Failed++
+			continue
+		}
+		if status != 200 {
+			// A missing sitemap (404/410) or an access denial is a normal absence, not a provider
+			// failure. Only a server/transport error makes the collection incomplete.
+			if status >= 400 && status < 500 {
+				res.Coverage.Skipped++
+			} else {
+				res.Coverage.Failed++
+			}
 			continue
 		}
 		locs, childSitemaps, perr := parseSitemap(body)

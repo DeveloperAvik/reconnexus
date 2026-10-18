@@ -402,6 +402,23 @@ reporting.
 - [x] Fixed orchestrator DAG iteration to use `OrderedStages` order (was lexicographic job_key).
 - [x] Go + TS tests with local mock TLS servers and an injectable resolver.
 
+## Phase 11 — Admin login & cPanel finder ✅ DONE
+
+New stage `14-login-finder` (capability `ACTIVE_HTTP`), run after takeover and before reporting.
+
+- [x] `builtin-login-finder` provider: fixed, bounded path probes for administrative login pages
+      plus cPanel/WHM/webmail paths and well-known control-panel ports.
+- [x] Read-only: unauthenticated GET only; no credentials submitted. Connection-bound transport and
+      per-hop redirect reauthorization.
+- [x] Per-candidate scope reauthorization (including path exclusions) and shared request-rate
+      limiting.
+- [x] Evidence-backed statuses `DETECTED`/`POSSIBLE` (never a vulnerability claim); generic pages
+      are not reported.
+- [x] `LOGIN_INTERFACE` record + `login-interface` observations; CLI `admin <scanId>` and
+      `cpanel <scanId>` with host/status/confidence filters.
+- [x] Go provider tests (admin, cPanel, generic-page rejection, path exclusion) and TS
+      contract/integration tests.
+
 ## Phase 9 — Hardening (remaining) ⏳ TODO
 
 - [ ] Failure-injection, DNS-rebinding, rebind/redirect fuzz, benchmark suite.

@@ -13,6 +13,7 @@ export const DiscoveryJobKind = {
   SECURITY_META: "SECURITY_META",
   SECRET_SCAN: "SECRET_SCAN",
   TAKEOVER: "TAKEOVER",
+  LOGIN_FINDER: "LOGIN_FINDER",
 } as const;
 export type DiscoveryJobKindValue = (typeof DiscoveryJobKind)[keyof typeof DiscoveryJobKind];
 
@@ -28,7 +29,7 @@ export const DiscoveryJobSchema = z.object({
   projectId: z.string().uuid(),
   stage: z.string().min(1),
   jobKey: z.string().min(1),
-  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER"]),
+  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER"]),
   provider: z.string().min(1),
   /** The full policy is passed so the worker can enforce scope independently. */
   policy: ScopePolicySchema,
@@ -517,6 +518,33 @@ export const TakeoverCandidateRecordSchema = z.object({
 });
 export type TakeoverCandidateRecord = z.infer<typeof TakeoverCandidateRecordSchema>;
 
+export const LoginInterfaceKind = z.enum(["ADMIN", "CPANEL"]);
+
+/**
+ * `DETECTED` means a concrete interface marker was observed (e.g. a password form on an admin
+ * path, or a cPanel/WHM response marker). `POSSIBLE` means only weaker evidence was available
+ * (for example an authentication-required status on a known administrative path). Neither state
+ * is a vulnerability claim, and no credentials are ever submitted.
+ */
+export const LoginInterfaceStatus = z.enum(["DETECTED", "POSSIBLE"]);
+
+export const LoginInterfaceRecordSchema = z.object({
+  type: z.literal("LOGIN_INTERFACE"),
+  url: z.string().min(1),
+  finalUrl: z.string().default(""),
+  host: z.string().min(1),
+  kind: LoginInterfaceKind,
+  status: LoginInterfaceStatus,
+  confidence: z.number().min(0).max(1),
+  httpStatus: z.number().int().nullable().default(null),
+  title: z.string().default(""),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type LoginInterfaceRecord = z.infer<typeof LoginInterfaceRecordSchema>;
+
 export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   HostObservationRecordSchema,
   DnsRecordSchema,
@@ -532,6 +560,7 @@ export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   SecretCandidateRecordSchema,
   SecretScanArtifactSchema,
   TakeoverCandidateRecordSchema,
+  LoginInterfaceRecordSchema,
 ]);
 export type DiscoveryRecord = z.infer<typeof DiscoveryRecordSchema>;
 

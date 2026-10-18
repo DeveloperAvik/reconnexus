@@ -209,6 +209,8 @@ export function reliabilityFor(source: string, score?: number): SourceReliabilit
     case "builtin-secret-scan":
     case "takeover":
     case "builtin-takeover":
+    case "login-finder":
+    case "builtin-login-finder":
       return "MEDIUM";
     default:
       return "LOW";
@@ -374,6 +376,33 @@ export async function ingestDiscoveryResult(
         evidenceType: rec.evidenceType,
         provider: rec.provider,
       });
+      return;
+    }
+    if (rec.type === "LOGIN_INTERFACE") {
+      const artifactUrl = rec.finalUrl || rec.url;
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, "builtin-login-finder", reliabilityFor("login-finder"), "login-interface", {
+        kind: rec.kind,
+        status: rec.status,
+        confidence: rec.confidence,
+        httpStatus: rec.httpStatus,
+        finalUrl: rec.finalUrl,
+        title: rec.title,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        host: rec.host,
+        provider: rec.provider,
+      });
+      if (rec.host) {
+        const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
+        await upsertRelationship(db, { projectId, fromAssetId: hostAssetId, toAssetId: urlId, relation: "contains_url", confidence: 0.8, source: rec.provider });
+        summary.relationships++;
+      }
+      if (artifactUrl && artifactUrl !== rec.url) {
+        const finalId = await upsert("URL", artifactUrl, artifactUrl);
+        await upsertRelationship(db, { projectId, fromAssetId: urlId, toAssetId: finalId, relation: "redirects_to", confidence: 0.7, source: rec.provider });
+        summary.relationships++;
+      }
       return;
     }
     if (rec.type === "SECURITY_METADATA") {

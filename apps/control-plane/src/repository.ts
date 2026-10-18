@@ -569,6 +569,17 @@ export class Repository {
     return res.rows as never;
   }
 
+  async listLoginInterfaces(scanId: string): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS url, o.data AS data
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'login-interface'
+        ORDER BY (o.data->>'kind'), a.value`,
+      [scanId],
+    );
+    return res.rows as never;
+  }
+
   async sumProviderSkipped(scanId: string): Promise<number> {
     const res = await this.db.query<{ n: string }>(
       "SELECT COALESCE(SUM(COALESCE((coverage->>'skipped')::int,0)),0)::text AS n FROM provider_executions WHERE scan_id = $1",

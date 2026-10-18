@@ -2,11 +2,12 @@
 
 CLI reconnaissance and web/API attack-surface intelligence platform.
 
-> **Build status: Stages 00–12 complete** — the full pipeline executes end to end: input/
+> **Build status: Stages 00–14 complete** — the full pipeline executes end to end: input/
 > authorization, target intelligence, subdomain discovery, DNS/infrastructure correlation, HTTP
 > probing + fingerprinting, URL collection/categorization, JavaScript analysis, API
 > (OpenAPI/Swagger) intelligence, secret detection (redacted), security-metadata enrichment,
-> deterministic evidence correlation, and redacted evidence-based reporting. A scan that skipped or
+> deterministic evidence correlation, subdomain-takeover and admin-login/cPanel interface
+> discovery, and redacted evidence-based reporting. A scan that skipped or
 > failed stages is reported `PARTIAL`/`FAILED`, never "complete". Raw secret values are never
 > persisted or printed; reports are regenerated deterministically and redaction fails closed. This is
 > **not a claim of production readiness** — see [docs/implementation-plan.md](docs/implementation-plan.md).
@@ -44,6 +45,7 @@ core.
 | Security metadata: TLS/HSTS/headers/cookies(attrs)/CORS/content-type with status + evidence | ✅ |
 | Secret detection: rules + entropy, redacted-only findings, keyed fingerprints | ✅ |
 | Subdomain-takeover detection: CNAME fingerprints + unclaimed-marker confirmation (candidate-only) | ✅ |
+| Admin login & cPanel finder: read-only fixed-path interface discovery (`admin`, `cpanel`) | ✅ |
 | Evidence correlation: shared secret fingerprints, multi-source corroboration, coverage gaps | ✅ |
 | Reporting: redacted human/json/jsonl/csv with truthful scan-status derivation | ✅ |
 | Structured logging with secret redaction | ✅ |
@@ -118,6 +120,8 @@ npm run rn -- vulns "$SCAN" --advisories advisories.json   # technology→CVE ca
 npm run rn -- urls "$SCAN" --stats
 npm run rn -- secrets "$SCAN"
 npm run rn -- takeover "$SCAN"
+npm run rn -- admin "$SCAN"
+npm run rn -- cpanel "$SCAN"
 npm run rn -- correlations "$SCAN"
 npm run rn -- report "$SCAN"                 # or --format json|jsonl|csv|html
 npm run rn -- report "$SCAN" --format html --out report.html
@@ -183,6 +187,7 @@ test/                 unit, integration, security, fixtures
 - [Data model](docs/architecture/data-model.md)
 - [Provider contracts](docs/architecture/provider-contracts.md)
 - [Subdomain-takeover detection](docs/architecture/subdomain-takeover.md)
+- [Admin login & cPanel finder](docs/architecture/login-finder.md)
 - [Scope enforcement threat model](docs/threat-model/scope-enforcement.md)
 - [Installation](docs/operations/installation.md) · [Configuration](docs/operations/configuration.md) · [Troubleshooting](docs/operations/troubleshooting.md)
 - [Provider compatibility matrix](docs/operations/provider-compatibility.md)

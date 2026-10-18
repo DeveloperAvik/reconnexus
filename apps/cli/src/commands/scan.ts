@@ -112,6 +112,7 @@ export interface ScanRunOptions {
   apiProviders?: string;
   securityProviders?: string;
   secretProviders?: string;
+  loginProviders?: string;
   maxAttempts?: number;
 }
 
@@ -142,6 +143,7 @@ function buildOrchestrator(
   if (opts.apiProviders) overrides.API_SPEC = splitList(opts.apiProviders);
   if (opts.securityProviders) overrides.SECURITY_META = splitList(opts.securityProviders);
   if (opts.secretProviders) overrides.SECRET_SCAN = splitList(opts.secretProviders);
+  if (opts.loginProviders) overrides.LOGIN_FINDER = splitList(opts.loginProviders);
   return new ScanOrchestrator({
     db,
     runner,

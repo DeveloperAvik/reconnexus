@@ -35,15 +35,18 @@ func (r *Record) flatPayloads() []any {
 	if r.Takeover != nil {
 		out = append(out, r.Takeover)
 	}
+	if r.Login != nil {
+		out = append(out, r.Login)
+	}
 	return out
 }
 
 // MarshalJSON emits the record in the shape declared by packages/contracts/src/discovery.ts.
 // JS_ARTIFACT, SOURCE_MAP, API_SPEC, API_ENDPOINT, SECURITY_METADATA, SECRET_CANDIDATE,
-// SECRET_SCAN_ARTIFACT and TAKEOVER_CANDIDATE carry their payload fields flat on the record; only
-// HTTP_OBSERVATION and TECHNOLOGY nest theirs. The record's own fields win over the payload: they use `omitempty`, so
-// only the ones a provider actually set are present, and framing (`url`, `provider`, `source`, …)
-// is never overwritten by an unset payload field.
+// SECRET_SCAN_ARTIFACT, TAKEOVER_CANDIDATE and LOGIN_INTERFACE carry their payload fields flat on
+// the record; only HTTP_OBSERVATION and TECHNOLOGY nest theirs. The record's own fields win over
+// the payload: they use `omitempty`, so only the ones a provider actually set are present, and
+// framing (`url`, `provider`, `source`, …) is never overwritten by an unset payload field.
 func (r Record) MarshalJSON() ([]byte, error) {
 	payloads := r.flatPayloads()
 	base := r
@@ -55,6 +58,7 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	base.Secret = nil
 	base.SecretScan = nil
 	base.Takeover = nil
+	base.Login = nil
 
 	baseBytes, err := json.Marshal(recordEnvelope(base))
 	if err != nil {

@@ -114,6 +114,7 @@ const IMPLEMENTED_STAGES = new Set<string>([
   StageId.SECURITY_CHECKS,
   StageId.CORRELATION,
   StageId.TAKEOVER,
+  StageId.LOGIN_FINDER,
   StageId.REPORTING,
 ]);
 
@@ -128,6 +129,7 @@ const DEFAULT_PROVIDERS: Record<DiscoveryJobKindValue, string[]> = {
   SECURITY_META: ["builtin-security-meta"],
   SECRET_SCAN: ["builtin-secret-scan"],
   TAKEOVER: ["builtin-takeover"],
+  LOGIN_FINDER: ["builtin-login-finder"],
 };
 
 const MAX_NAMES = 1000;
@@ -145,6 +147,7 @@ const MAX_SECURITY_TARGETS = 200;
 const MAX_SECRET_ARTIFACTS = 300;
 const MAX_CORR_ASSETS = 2000;
 const MAX_TAKEOVER_HOSTS = 300;
+const MAX_LOGIN_ORIGINS = 25;
 const MAX_FINGERPRINT_GROUP = 10;
 const MAX_CORR_EDGES = 500;
 
@@ -219,7 +222,8 @@ export class ScanOrchestrator {
 
     const jobs = await this.repo.getJobRows(scanId);
     // Execute in the declared pipeline order, not lexicographic job_key order (stage ids such as
-    // "13-subdomain-takeover" sort before "12-reporting" but must run after it).
+    // "13-subdomain-takeover" and "14-login-finder" sort before "12-reporting" but must run after
+    // it).
     const stageOrder = new Map<string, number>(OrderedStages.map((s, i) => [s as string, i]));
     jobs.sort((a, b) => (stageOrder.get(a.stage) ?? 999) - (stageOrder.get(b.stage) ?? 999));
     const scanStartedMs = this.now().getTime();
@@ -427,6 +431,8 @@ export class ScanOrchestrator {
         return this.runSecretDetection(scan, job, policy);
       case StageId.TAKEOVER:
         return this.runTakeover(scan, job, policy);
+      case StageId.LOGIN_FINDER:
+        return this.runLoginFinder(scan, job, policy);
       case StageId.SECURITY_CHECKS:
         return this.runSecurityChecks(scan, job, policy);
       case StageId.CORRELATION:
@@ -698,6 +704,37 @@ export class ScanOrchestrator {
     const outcomes: ProviderOutcomeSummary[] = [];
     for (const provider of this.providersFor(DiscoveryJobKind.TAKEOVER)) {
       outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.TAKEOVER, provider, inputs: { urls } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes);
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 14 — read-only admin-login and cPanel/WHM/webmail interface discovery. Seeds the
+   * origins observed during HTTP probing and asks the worker to request a small, fixed set of
+   * well-known administrative paths and control-panel ports. No credentials are submitted and
+   * every candidate URL is reauthorized by the worker.
+   */
+  private async runLoginFinder(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    const probes = await this.repo.listHttpObservations(scan.id);
+    const origins = new Set<string>();
+    for (const p of probes) {
+      if (p.probe_status === "OK" || p.probe_status === "OVERSIZED" || p.probe_status === "REDIRECT_DENIED") {
+        const o = originOfUrl(p.final_url || p.url);
+        if (o) origins.add(o);
+      }
+    }
+    const urls = Array.from(origins).sort().slice(0, MAX_LOGIN_ORIGINS);
+    if (urls.length === 0) {
+      await this.deps.db.withTransaction((c) =>
+        upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no eligible HTTP origins observed" }),
+      );
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no origins" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.LOGIN_FINDER)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.LOGIN_FINDER, provider, inputs: { urls } }));
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes);

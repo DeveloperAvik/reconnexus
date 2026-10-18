@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "policyId": "993e997e-1b86-4d41-bb67-e4ec663e603a",
+  "projectId": "1cc0efb8-4eeb-4776-9d1c-f94d0296eadc",
+  "policyVersion": 1,
+  "authorization": {
+    "reference": "Avik",
+    "authorizedBy": "you",
+    "validFrom": "2026-10-17T11:07:36.930Z",
+    "validUntil": "2027-01-15T11:07:36.930Z",
+    "capabilities": [
+      "PASSIVE",
+      "DNS",
+      "ACTIVE_HTTP",
+      "CRAWL",
+      "JS_ANALYSIS",
+      "API_DISCOVERY",
+      "SECRET_SCAN",
+      "SECURITY_CHECKS",
+      "TAKEOVER_CHECK"
+    ]
+  },
+  "inScope": {
+    "domains": [
+      {
+        "value": "nawaiwaqt.com.pk",
+        "includeSubdomains": true
+      }
+    ],
+    "hosts": [],
+    "ips": [],
+    "cidrs": []
+  },
+  "exclusions": {
+    "domains": [],
+    "hosts": [],
+    "ips": [],
+    "cidrs": [],
+    "paths": []
+  },
+  "limits": {
+    "maxConcurrency": 8,
+    "requestsPerSecond": 10,
+    "crawlDepth": 2,
+    "maxRuntimeSeconds": 1800,
+    "maxArtifactBytes": 8388608
+  }
+}

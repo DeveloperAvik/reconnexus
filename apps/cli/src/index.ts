@@ -27,6 +27,7 @@ import { secretsCommand } from "./commands/secrets.js";
 import { correlationsCommand } from "./commands/correlations.js";
 import { reportCommand } from "./commands/report.js";
 import { takeoverCommand } from "./commands/takeover.js";
+import { adminCommand, cpanelCommand } from "./commands/finder.js";
 import { changesCommand } from "./commands/changes.js";
 import { notImplementedCommand } from "./commands/stubs.js";
 
@@ -226,6 +227,7 @@ function buildProgram(): Command {
       .option("--api-providers <list>", "comma-separated API specification providers")
       .option("--security-providers <list>", "comma-separated security metadata providers")
       .option("--secret-providers <list>", "comma-separated secret-scan providers")
+      .option("--login-providers <list>", "comma-separated login/cPanel finder providers")
       .option("--max-attempts <n>", "maximum attempts per stage", (v: string) => Number(v));
 
   scanRunOptions(
@@ -242,6 +244,7 @@ function buildProgram(): Command {
         ...(opts.apiProviders ? { apiProviders: opts.apiProviders } : {}),
         ...(opts.securityProviders ? { securityProviders: opts.securityProviders } : {}),
         ...(opts.secretProviders ? { secretProviders: opts.secretProviders } : {}),
+        ...(opts.loginProviders ? { loginProviders: opts.loginProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -259,6 +262,7 @@ function buildProgram(): Command {
         ...(opts.apiProviders ? { apiProviders: opts.apiProviders } : {}),
         ...(opts.securityProviders ? { securityProviders: opts.securityProviders } : {}),
         ...(opts.secretProviders ? { secretProviders: opts.secretProviders } : {}),
+        ...(opts.loginProviders ? { loginProviders: opts.loginProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -485,6 +489,44 @@ function buildProgram(): Command {
         }),
       ),
     );
+
+  // Administrative login and hosting-control-panel interfaces (read-only discovery)
+  const finderOptions = (cmd: Command): Command =>
+    cmd
+      .option("--status <status>", "filter by status (DETECTED/POSSIBLE)")
+      .option("--host <substr>", "filter by host substring")
+      .option("--confidence <n>", "minimum confidence (0-1)", (v: string) => Number(v))
+      .option("--limit <n>", "maximum rows to show", (v: string) => Number(v));
+
+  finderOptions(
+    program
+      .command("admin <scanId>")
+      .description("list discovered admin login interfaces (unauthenticated GET only)"),
+  ).action((id: string, opts) =>
+    run("admin", program, (ctx) =>
+      adminCommand(ctx, id, {
+        ...(opts.status ? { status: opts.status } : {}),
+        ...(opts.host ? { host: opts.host } : {}),
+        ...(opts.confidence !== undefined ? { confidence: opts.confidence } : {}),
+        ...(opts.limit ? { limit: opts.limit } : {}),
+      }),
+    ),
+  );
+
+  finderOptions(
+    program
+      .command("cpanel <scanId>")
+      .description("list discovered cPanel/WHM/webmail interfaces (unauthenticated GET only)"),
+  ).action((id: string, opts) =>
+    run("cpanel", program, (ctx) =>
+      cpanelCommand(ctx, id, {
+        ...(opts.status ? { status: opts.status } : {}),
+        ...(opts.host ? { host: opts.host } : {}),
+        ...(opts.confidence !== undefined ? { confidence: opts.confidence } : {}),
+        ...(opts.limit ? { limit: opts.limit } : {}),
+      }),
+    ),
+  );
 
   // Scan-to-scan change intelligence
   program

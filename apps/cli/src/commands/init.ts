@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { ExitCode, ScopePolicySchema } from "@reconnexus/contracts";
@@ -73,7 +73,9 @@ export async function initCommand(ctx: Context, opts: InitOptions): Promise<Comm
   const configPath = join(root, "reconnexus.config.json");
 
   const created: string[] = [];
+  const updated: string[] = [];
   const skipped: string[] = [];
+  const relPolicy = policyPath.startsWith(root) ? `.${policyPath.slice(root.length)}` : policyPath;
 
   if (existsSync(policyPath) && !opts.force) {
     skipped.push(policyPath);
@@ -84,7 +86,6 @@ export async function initCommand(ctx: Context, opts: InitOptions): Promise<Comm
   }
 
   if (!existsSync(configPath) || opts.force) {
-    const relPolicy = policyPath.startsWith(root) ? `.${policyPath.slice(root.length)}` : policyPath;
     const config = {
       schemaVersion: 1,
       defaultPolicyFile: relPolicy,
@@ -93,16 +94,32 @@ export async function initCommand(ctx: Context, opts: InitOptions): Promise<Comm
     writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
     created.push(configPath);
   } else {
-    skipped.push(configPath);
+    // Keep the existing config (database, provider paths, logging, …) but point it at the policy
+    // this run scaffolded. Leaving a stale default policy here made a later `scan start` deny a
+    // target whose policy had just been generated.
+    try {
+      const config = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+      if (config.defaultPolicyFile !== relPolicy) {
+        config.defaultPolicyFile = relPolicy;
+        writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+        updated.push(configPath);
+      } else {
+        skipped.push(configPath);
+      }
+    } catch {
+      // A malformed config is not silently rewritten; the current file is left untouched.
+      skipped.push(configPath);
+    }
   }
 
   return result({
     exitCode: ExitCode.SUCCESS,
-    data: { domain: canonicalHost(domain), rootDomain: policy.inScope.domains[0]?.value, policyPath, configPath, authorization: policy.authorization },
+    data: { domain: canonicalHost(domain), rootDomain: policy.inScope.domains[0]?.value, policyPath, configPath, configUpdated: updated.length > 0, authorization: policy.authorization },
     render: () =>
       [
         color.green("ReconNexus initialized."),
         created.length ? `  wrote:   ${created.join(", ")}` : "",
+        updated.length ? `  updated: ${updated.join(", ")} (defaultPolicyFile)` : "",
         skipped.length ? `  kept:    ${skipped.join(", ")} (already exists; use --force to overwrite)` : "",
         "",
         "This policy authorizes:",

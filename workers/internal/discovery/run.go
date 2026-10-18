@@ -80,6 +80,7 @@ func init() {
 	register(builtinSecurityMeta{})
 	register(builtinSecretScan{})
 	register(builtinTakeover{})
+	register(builtinLoginFinder{})
 }
 
 // Run executes a discovery job and returns a truthful result. An error is returned only
@@ -105,14 +106,14 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 		base.Coverage.Attempted = 1
 		base.Coverage.Skipped = 1
 		base.Diagnostics = append(base.Diagnostics, "unknown provider: "+job.Provider)
-		return base, nil
+		return finalizeResult(base), nil
 	}
 	if k := prov.Kind(); k != "" && k != job.Kind {
 		base.Status = StatusFailed
 		base.Coverage.Attempted = 1
 		base.Coverage.Failed = 1
 		base.Diagnostics = append(base.Diagnostics, fmt.Sprintf("provider %s does not support kind %s", job.Provider, job.Kind))
-		return base, nil
+		return finalizeResult(base), nil
 	}
 	requiredCap := prov.Capability()
 	if requiredCap != "" && !capAllowed(job.Policy, requiredCap) {
@@ -120,7 +121,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 		base.Coverage.Attempted = 1
 		base.Coverage.Skipped = 1
 		base.Diagnostics = append(base.Diagnostics, fmt.Sprintf("capability %s is not authorized by the policy", requiredCap))
-		return base, nil
+		return finalizeResult(base), nil
 	}
 
 	// Scope-filter inputs. Discovered assets are never auto-authorized: every name that will
@@ -138,7 +139,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = 1
 			base.Coverage.Failed = 1
 			base.Diagnostics = append(base.Diagnostics, "rootDomain is required for subdomain discovery")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 		d := engine.Check(scope.Request{Kind: "DOMAIN", Value: job.Inputs.RootDomain, Capability: requiredCapOr(requiredCap, "PASSIVE")})
 		if !d.Allowed {
@@ -146,7 +147,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = 1
 			base.Coverage.Skipped = 1
 			base.Diagnostics = append(base.Diagnostics, "root domain is not authorized: "+d.Reason)
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "DNS":
 		names := make([]string, 0, len(job.Inputs.Names))
@@ -174,7 +175,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all inputs were out of scope; nothing resolved")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "IP_METADATA":
 		addrs := make([]AddressInput, 0, len(job.Inputs.Addresses))
@@ -192,7 +193,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all addresses were out of scope; nothing correlated")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "HTTP_PROBE":
 		urls := make([]string, 0, len(job.Inputs.URLs))
@@ -210,7 +211,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all HTTP targets were out of scope; nothing probed")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "JS_ANALYSIS":
 		js := make([]string, 0, len(job.Inputs.JSURLs))
@@ -228,7 +229,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all JavaScript URLs were out of scope; nothing analysed")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "API_SPEC":
 		specs := make([]string, 0, len(job.Inputs.SpecURLs))
@@ -256,7 +257,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all API specification URLs were out of scope; nothing parsed")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "SECURITY_META":
 		urls := make([]string, 0, len(job.Inputs.URLs))
@@ -274,7 +275,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all services were out of scope; no metadata collected")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "TAKEOVER":
 		urls := make([]string, 0, len(job.Inputs.URLs))
@@ -292,7 +293,25 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all hosts were out of scope; no takeover checks performed")
-			return base, nil
+			return finalizeResult(base), nil
+		}
+	case "LOGIN_FINDER":
+		urls := make([]string, 0, len(job.Inputs.URLs))
+		for _, u := range job.Inputs.URLs {
+			d := engine.Check(scope.Request{Kind: "URL", Value: u, Capability: requiredCapOr(requiredCap, "ACTIVE_HTTP")})
+			if d.Allowed {
+				urls = append(urls, u)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.URLs = urls
+		if len(urls) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no interface checks performed")
+			return finalizeResult(base), nil
 		}
 	case "SECRET_SCAN":
 		arts := make([]string, 0, len(job.Inputs.ArtifactURLs))
@@ -310,7 +329,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all artifacts were out of scope; nothing scanned")
-			return base, nil
+			return finalizeResult(base), nil
 		}
 	case "URL_COLLECTION":
 		// The mock provider has no capability and reads a fixture; skip input filtering for it.
@@ -340,7 +359,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 				base.Coverage.Attempted = skipped
 				base.Coverage.Skipped = skipped
 				base.Diagnostics = append(base.Diagnostics, "all URL-collection inputs were out of scope; nothing collected")
-				return base, nil
+				return finalizeResult(base), nil
 			}
 		}
 	}
@@ -352,7 +371,7 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 		base.Coverage.Attempted = unitCount(job)
 		base.Coverage.Failed = 1
 		base.Diagnostics = append(base.Diagnostics, "internal provider error: "+err.Error())
-		return base, nil
+		return finalizeResult(base), nil
 	}
 
 	base.Records = pr.Records
@@ -386,7 +405,25 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 	logger.Info("discovery job finished", map[string]any{
 		"scanId": job.ScanID, "provider": job.Provider, "kind": job.Kind, "status": base.Status, "records": len(base.Records),
 	})
-	return base, nil
+	return finalizeResult(base), nil
+}
+
+// finalizeResult guarantees the JSON shape required by the discovery contract on every return
+// path, including early exits such as an unknown provider or an all-out-of-scope input set. Without
+// this, a nil Execution.Argv marshals as null and the control plane rejects the entire result with
+// a schema error that hides the real reason (for example, a stale worker binary).
+func finalizeResult(r Result) Result {
+	if r.Execution.Argv == nil {
+		r.Execution.Argv = []string{}
+	}
+	if r.Records == nil {
+		r.Records = []Record{}
+	}
+	if r.Diagnostics == nil {
+		r.Diagnostics = []string{}
+	}
+	NormalizeRecords(r.Records)
+	return r
 }
 
 func deriveStatus(ctx context.Context, pr ProviderResult, cov Coverage) string {
@@ -430,6 +467,8 @@ func unitCount(job Job) int {
 	case "SECRET_SCAN":
 		return len(job.Inputs.ArtifactURLs)
 	case "TAKEOVER":
+		return len(job.Inputs.URLs)
+	case "LOGIN_FINDER":
 		return len(job.Inputs.URLs)
 	}
 	return 1

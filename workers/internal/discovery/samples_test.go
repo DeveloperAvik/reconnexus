@@ -48,7 +48,7 @@ func TestFlatPayloadsAreMergedOntoTheRecord(t *testing.T) {
 		if err := json.Unmarshal(raw, &obj); err != nil {
 			t.Fatalf("unmarshal %s: %v", r.Type, err)
 		}
-		for _, container := range []string{"artifact", "sourceMap", "apiSpec", "endpoint", "security", "secret", "secretScan"} {
+		for _, container := range []string{"artifact", "sourceMap", "apiSpec", "endpoint", "security", "secret", "secretScan", "takeover", "login"} {
 			if _, found := obj[container]; found {
 				t.Errorf("%s: payload is still nested under %q; the contract is flat", r.Type, container)
 			}

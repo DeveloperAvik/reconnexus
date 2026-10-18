@@ -143,6 +143,21 @@ type Record struct {
 	SecretScan *SecretScanArtifactInfo `json:"secretScan,omitempty"`
 	// TAKEOVER_CANDIDATE
 	Takeover *TakeoverInfo `json:"takeover,omitempty"`
+	// LOGIN_INTERFACE
+	Login *LoginInterfaceInfo `json:"login,omitempty"`
+}
+
+// LoginInterfaceInfo is a discovered administrative login or hosting-control-panel interface.
+// It records only what was observed with an unauthenticated GET; no credentials are submitted.
+type LoginInterfaceInfo struct {
+	Kind         string `json:"kind"`
+	Status       string `json:"status"`
+	Confidence   float64 `json:"confidence"`
+	FinalURL     string `json:"finalUrl"`
+	HTTPStatus   *int   `json:"httpStatus"`
+	Title        string `json:"title"`
+	Evidence     string `json:"evidence"`
+	EvidenceType string `json:"evidenceType"`
 }
 
 // TakeoverInfo is a potential subdomain-takeover candidate (never a confirmed takeover).
@@ -345,6 +360,18 @@ const (
 	TypeSecretCandidate    = "SECRET_CANDIDATE"
 	TypeSecretScanArtifact = "SECRET_SCAN_ARTIFACT"
 	TypeTakeoverCandidate  = "TAKEOVER_CANDIDATE"
+	TypeLoginInterface     = "LOGIN_INTERFACE"
+)
+
+// Login-interface kinds and statuses. DETECTED means a concrete marker was observed; POSSIBLE
+// means only weaker evidence (usually an auth-required status on a known admin path). Neither is
+// a vulnerability claim.
+const (
+	LoginKindAdmin  = "ADMIN"
+	LoginKindCpanel = "CPANEL"
+
+	LoginDetected = "DETECTED"
+	LoginPossible = "POSSIBLE"
 )
 
 // Subdomain-takeover candidate statuses (never a confirmed takeover).
