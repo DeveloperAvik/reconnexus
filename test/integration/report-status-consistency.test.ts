@@ -66,12 +66,12 @@ describe.skipIf(!available)("report status agrees with reported findings", () =>
         [projectId, `https://${rootDomain}/a.js`],
       );
       const assetId = asset.rows[0]!.id;
-      // 3 correlation observations, exactly like the Dunya News report, and zero findings.
+      // 3 distinct correlation observations (identical rows are rejected by observations_identity_uidx), and zero findings.
       for (let i = 0; i < 3; i++) {
         await db.query(
           `INSERT INTO observations (project_id,scan_id,asset_id,source,source_reliability,observed_at,kind,data)
            VALUES ($1,$2,$3,'stage-11-correlation','HIGH', now(),'correlation',$4::jsonb)`,
-          [projectId, scanId, assetId, JSON.stringify({ relation: "MULTI_SOURCE_CORROBORATION", status: "OBSERVED", subject: `https://${rootDomain}/a.js`, related: ["dns", "crawler"], confidence: 0.6 })],
+          [projectId, scanId, assetId, JSON.stringify({ relation: "MULTI_SOURCE_CORROBORATION", status: "OBSERVED", subject: `https://${rootDomain}/a${i}.js`, related: ["dns", "crawler"], confidence: 0.6 })],
         );
       }
       await markAllSucceeded(db, scanId);

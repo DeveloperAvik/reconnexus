@@ -25,25 +25,39 @@ export async function upsertAsset(
   return res.rows[0]!;
 }
 
-export async function insertObservation(
-  db: Queryable,
-  input: {
-    projectId: string;
-    scanId: string;
-    assetId: string;
-    source: string;
-    sourceReliability: SourceReliabilityValue;
-    observedAt: Date;
-    kind: string;
-    data: Record<string, unknown>;
-  },
-): Promise<string> {
-  const res = await db.query<{ id: string }>(
+export interface ObservationInput {
+  projectId: string;
+  scanId: string;
+  assetId: string;
+  source: string;
+  sourceReliability: SourceReliabilityValue;
+  observedAt: Date;
+  kind: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Insert an observation idempotently. Identity is enforced by the unique index
+ * `observations_identity_uidx` on (project_id, scan_id, asset_id, source, kind, md5(data::text)):
+ * replaying the same fact within a scan returns the existing row instead of appending a copy,
+ * while a different scan, asset, source, kind or payload is a distinct observation. On conflict
+ * the existing row's last_seen is widened; nothing else is overwritten. Safe under concurrent
+ * ingestion (the second writer blocks on the row, then takes the conflict path).
+ */
+export async function insertObservationIdempotent(db: Queryable, input: ObservationInput): Promise<{ id: string; inserted: boolean }> {
+  const res = await db.query<{ id: string; inserted: boolean }>(
     `INSERT INTO observations (project_id, scan_id, asset_id, source, source_reliability, observed_at, kind, data)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (project_id, scan_id, asset_id, source, kind, (md5(data::text)))
+     DO UPDATE SET last_seen = GREATEST(COALESCE(observations.last_seen, observations.observed_at), EXCLUDED.observed_at)
+     RETURNING id, (xmax = 0) AS inserted`,
     [input.projectId, input.scanId, input.assetId, input.source, input.sourceReliability, input.observedAt, input.kind, JSON.stringify(input.data)],
   );
-  return res.rows[0]!.id;
+  return res.rows[0]!;
+}
+
+export async function insertObservation(db: Queryable, input: ObservationInput): Promise<string> {
+  return (await insertObservationIdempotent(db, input)).id;
 }
 
 export async function upsertRelationship(
@@ -272,7 +286,9 @@ export async function ingestDiscoveryResult(
   };
 
   const recordObservation = async (assetId: string, source: string, reliability: SourceReliabilityValue, kind: string, data: Record<string, unknown>): Promise<void> => {
-    const id = await insertObservation(db, { projectId, scanId, assetId, source, sourceReliability: reliability, observedAt, kind, data });
+    const { id, inserted } = await insertObservationIdempotent(db, { projectId, scanId, assetId, source, sourceReliability: reliability, observedAt, kind, data });
+    // A replayed observation resolves to the existing row: it is neither counted nor re-linked.
+    if (!inserted) return;
     summary.observations++;
     summary.observationIds.push(id);
   };
