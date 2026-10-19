@@ -8,6 +8,13 @@ planned functionality; entries only describe what is actually implemented and te
 
 ### Fixed
 
+- **Mixed-outcome stage retries (P2-2):** a stage is now retried when any provider failed, not only
+  when every provider failed, so `FAILED + SUCCEEDED/SKIPPED/SOURCE_UNAVAILABLE` stages recover from
+  transient failures. Only the `FAILED` providers re-run; successful/partial providers are reused and
+  unavailable/skipped/blocked providers are not retried. `scan --max-attempts` is now the effective
+  per-stage attempt limit (previously it was ignored by the retry check, which always used the job's
+  default of 3). See `docs/architecture/discovery.md`.
+
 - **Restricted-address scope policy (P2-1):** an explicit `inScope.ips`/`cidrs` entry no longer
   bypasses the `INTERNAL_NETWORK` capability and restricted-address override. Restricted classes now
   require the entry, the capability and the override together (as documented), and the override no

@@ -126,3 +126,22 @@ RDAP IP lookups yield a network prefix, registry name and country when present; 
 recorded if the response actually contains it (RDAP IP responses generally do not, which is stated
 as a limitation). Correlation never scans a CIDR and never infers that every host in a prefix
 belongs to the target organization.
+
+## Stage retry policy
+
+Retries are decided per stage but executed per provider. After each attempt, a stage is retried
+(bounded exponential backoff, at most `--max-attempts`, default 3) when **at least one provider
+ended `FAILED`**, whatever the stage aggregate is (`FAILED`, or `PARTIAL` because a sibling
+succeeded). Only the failed providers run again:
+
+| Provider outcome | Retried? | On a retry of the stage |
+| --- | --- | --- |
+| `FAILED` | yes | executed again |
+| `SUCCEEDED`, `PARTIAL` | no | persisted result reused (no re-run, no duplicate observations) |
+| `SOURCE_UNAVAILABLE` | no | not re-run during this stage run (a later explicit `resume` re-evaluates it) |
+| `SKIPPED`, `BLOCKED` | no | not re-run |
+| `CANCELLED` | no | cancellation is checked before every attempt and ends the stage |
+
+When attempts are exhausted the stage keeps its honest aggregate: `PARTIAL` if any provider
+produced data, `FAILED` otherwise; failed providers stay recorded as `FAILED` in the persisted
+provider outcomes. A stage with no providers (internal stages) is not retried.

@@ -192,6 +192,12 @@ export class ScanOrchestrator {
   private totals = { assetsCreated: 0, observations: 0, relationships: 0 };
   /** Wall-clock window of the stage currently executing, so coverage can persist its duration. */
   private stageClock: { stage: string; startedMs: number; startedAt: Date } | null = null;
+  /**
+   * Provider outcomes that a retry of the *current* stage must not repeat: permanent or
+   * environmental results (unavailable source, skipped, blocked). Scoped to one runStageWithRetries
+   * call, so a later explicit resume still re-evaluates them (e.g. a tool that has since been installed).
+   */
+  private settledProviders = new Map<string, ProviderOutcomeSummary>();
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.repo = new Repository(deps.db);
@@ -372,7 +378,12 @@ export class ScanOrchestrator {
   ): Promise<{ status: string; providers: ProviderOutcomeSummary[]; attempts: number; reason?: string }> {
     let lastProviders: ProviderOutcomeSummary[] = [];
     let attemptsUsed = job.attempts;
-    for (let attempt = job.attempts + 1; attempt <= Math.max(job.max_attempts, this.maxAttempts); attempt++) {
+    this.settledProviders = new Map();
+    // An explicit maxAttempts (scan --max-attempts) is the per-stage limit; otherwise the job's own.
+    // Previously the stage predicate always compared against job.max_attempts, so the option could
+    // neither lower nor raise the number of attempts that actually ran.
+    const attemptCap = this.deps.maxAttempts ?? job.max_attempts;
+    for (let attempt = job.attempts + 1; attempt <= attemptCap; attempt++) {
       attemptsUsed = attempt;
       if (await this.isCancelled(scan.id)) {
         await this.repo.setJobStatus(scan.id, job.job_key, JobStatus.CANCELLED);
@@ -389,14 +400,16 @@ export class ScanOrchestrator {
       // Stage results are persisted by the stage itself (records, coverage, provider outcomes)
       // before the job is marked terminal, so a crash between the two never reports success for
       // data that was not written.
-      if (result.status === JobStatus.SUCCEEDED || result.status === JobStatus.PARTIAL || result.status === JobStatus.SKIPPED || result.status === JobStatus.BLOCKED) {
-        await this.repo.setJobStatus(scan.id, job.job_key, result.status);
-        return { ...result, attempts: attemptsUsed };
-      }
-      // Failed or unavailable.
-      const retryable = result.providers.length > 0 && result.providers.every((p) => p.outcome === JobStatus.FAILED);
-      if (!retryable || attempt >= job.max_attempts) {
-        await this.repo.setJobStatus(scan.id, job.job_key, result.status, result.reason ?? result.status);
+      // Retry policy (stage-level loop, provider-level work): a stage is retried when at least one
+      // provider ended FAILED, whatever the stage-level aggregate is (FAILED, or PARTIAL because a
+      // sibling succeeded). Providers that finished SUCCEEDED/PARTIAL are reused from their persisted
+      // outcome, and SOURCE_UNAVAILABLE/SKIPPED/BLOCKED providers are settled for this run, so only
+      // the FAILED providers execute again. See isRetryableProviderOutcome.
+      const retryable = shouldRetryStage(result.providers);
+      if (!retryable || attempt >= attemptCap) {
+        const finished = result.status === JobStatus.SUCCEEDED || result.status === JobStatus.PARTIAL || result.status === JobStatus.SKIPPED || result.status === JobStatus.BLOCKED;
+        if (finished) await this.repo.setJobStatus(scan.id, job.job_key, result.status);
+        else await this.repo.setJobStatus(scan.id, job.job_key, result.status, result.reason ?? result.status);
         return { ...result, attempts: attemptsUsed };
       }
       const backoff = Math.min(30000, 500 * 2 ** (attempt - 1)) + Math.floor(Math.random() * 250);
@@ -1080,6 +1093,12 @@ export class ScanOrchestrator {
       };
     }
 
+    const settled = this.settledProviders.get(`${job.stage}\u0000${provider}`);
+    if (settled) {
+      this.emitEvent({ type: "provider-end", stage: job.stage, provider, status: settled.outcome, records: settled.records, durationMs: 0, recordsByType: {}, reused: true });
+      return { ...settled, durationMs: null, reason: `${settled.outcome} on an earlier attempt; not retried${settled.reason ? `: ${settled.reason}` : ""}` };
+    }
+
     this.emitEvent({ type: "provider-start", stage: job.stage, provider });
 
     const runtimeMs = policy.limits.maxRuntimeSeconds * 1000;
@@ -1147,7 +1166,7 @@ export class ScanOrchestrator {
       recordsByType: countRecordsByType(result.records),
       reused: false,
     });
-    return {
+    const summary: ProviderOutcomeSummary = {
       stage: job.stage,
       provider,
       outcome: result.status,
@@ -1158,6 +1177,10 @@ export class ScanOrchestrator {
       timedOut: result.execution.timedOut,
       truncated: result.execution.truncated,
     };
+    if (!isRetryableProviderOutcome(result.status) && NON_RETRYABLE_SETTLED.has(result.status)) {
+      this.settledProviders.set(`${job.stage}\u0000${provider}`, summary);
+    }
+    return summary;
   }
 
   private async writeStageCoverage(
@@ -1230,6 +1253,27 @@ export function countRecordsByType(records: ReadonlyArray<{ type: string }>): Re
   for (const k of Object.keys(out).sort()) sorted[k] = out[k]!;
   return sorted;
 }
+
+/**
+ * Retry semantics per provider outcome:
+ *  - FAILED: transient/unknown execution failure -> retryable.
+ *  - SUCCEEDED / PARTIAL: work was done (PARTIAL means truncated/timed-out coverage, which a rerun
+ *    with the same limits would not improve) -> never retried; the persisted result is reused.
+ *  - SOURCE_UNAVAILABLE: the tool/source is missing or down, a permanent condition for this run
+ *    -> not retried (an explicit resume re-evaluates it).
+ *  - SKIPPED / BLOCKED: a deliberate decision (nothing to do, scope or prerequisite) -> not retried.
+ *  - CANCELLED: the operator stopped the scan -> never retried.
+ */
+export function isRetryableProviderOutcome(outcome: string): boolean {
+  return outcome === JobStatus.FAILED;
+}
+
+/** A stage is retried only when at least one of its providers ended in a retryable outcome. */
+export function shouldRetryStage(providers: ReadonlyArray<{ outcome: string }>): boolean {
+  return providers.some((p) => isRetryableProviderOutcome(p.outcome));
+}
+
+const NON_RETRYABLE_SETTLED: ReadonlySet<string> = new Set([JobStatus.SOURCE_UNAVAILABLE, JobStatus.SKIPPED, JobStatus.BLOCKED]);
 
 export function aggregate(outcomes: string[]): string {
   if (outcomes.length === 0) return JobStatus.SKIPPED;
