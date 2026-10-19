@@ -267,8 +267,17 @@ func (e *Engine) evaluateAddress(address string) AddressDecision {
 	explicitlyAllowed := e.explicitlyAllowedIP(a)
 
 	if cls.IsSpecial() {
-		if explicitlyAllowed {
-			return AddressDecision{Address: address, Allowed: true, Reason: "explicitly authorized in-scope address"}
+		// Policy (P2-1, docs/threat-model/scope-enforcement.md "Restricted address space"):
+		//   * documentation ranges (RFC 5737 / RFC 3849) listed in scope are allowed outright;
+		//   * every other restricted class must be explicitly listed in inScope.ips/cidrs AND the
+		//     policy must grant INTERNAL_NETWORK AND the restricted-address override must be set.
+		// The override never opens unlisted restricted space, so a name rebinding to an unlisted
+		// private/loopback/metadata address is always denied. Mirrors packages/scope-policy/src/engine.ts.
+		if explicitlyAllowed && cls.IsDocumentation {
+			return AddressDecision{Address: address, Allowed: true, Reason: "explicitly authorized in-scope documentation address"}
+		}
+		if !explicitlyAllowed {
+			return AddressDecision{Address: address, Allowed: false, Reason: "restricted address space (" + strings.Join(cls.Categories(), ", ") + ") is not explicitly listed in inScope.ips/cidrs"}
 		}
 		if !e.AllowRestrictedAddress || !contains(e.Policy.Authorization.Capabilities, CapabilityInternalNetwork) {
 			return AddressDecision{Address: address, Allowed: false, Reason: "restricted address space (" + strings.Join(cls.Categories(), ", ") + ") requires INTERNAL_NETWORK capability and a restricted-address override"}

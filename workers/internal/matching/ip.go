@@ -17,6 +17,8 @@ type Classification struct {
 	IsBroadcast   bool
 	IsReserved    bool
 	IsMetadata    bool
+	// IsDocumentation marks RFC 5737 / RFC 3849 documentation ranges (a subset of IsReserved).
+	IsDocumentation bool
 }
 
 func (c Classification) IsSpecial() bool {
@@ -91,6 +93,9 @@ func ClassifyAddr(a netip.Addr) Classification {
 			inPrefix(a, "198.51.100.0/24") ||
 			inPrefix(a, "203.0.113.0/24") ||
 			inPrefix(a, "240.0.0.0/4")
+		c.IsDocumentation = inPrefix(a, "192.0.2.0/24") ||
+			inPrefix(a, "198.51.100.0/24") ||
+			inPrefix(a, "203.0.113.0/24")
 		c.IsMetadata = a == netip.MustParseAddr("169.254.169.254")
 	} else {
 		c.IsLoopback = a == netip.MustParseAddr("::1")
@@ -99,6 +104,7 @@ func ClassifyAddr(a netip.Addr) Classification {
 		c.IsPrivate = c.IsUniqueLocal
 		c.IsMulticast = inPrefix(a, "ff00::/8")
 		c.IsReserved = inPrefix(a, "2001:db8::/32")
+		c.IsDocumentation = c.IsReserved
 		c.IsMetadata = a == netip.MustParseAddr("fd00:ec2::254")
 	}
 	c.IsUnspecified = a.IsUnspecified()

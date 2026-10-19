@@ -17,8 +17,8 @@
         { "value": "example.org", "includeSubdomains": false }
       ],
       "hosts": ["api.example.net"],
-      "ips": ["203.0.113.10"],
-      "cidrs": ["198.51.100.0/24"]
+      "ips": ["203.0.113.10", "127.0.0.5", "169.254.169.254"],
+      "cidrs": ["198.51.100.0/24", "10.0.0.0/8", "fd00::/8", "2001:db8::/32"]
     },
     "exclusions": {
       "domains": [{ "value": "excluded.example.com", "includeSubdomains": true }],
@@ -59,6 +59,15 @@
     { "name": "resolved private address denied (rebinding)", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["10.0.0.5"], "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
     { "name": "resolved metadata address denied", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["169.254.169.254"], "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
     { "name": "resolved public address allowed", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["93.184.216.34"], "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "explicit loopback IP still needs flag (P2-1)", "kind": "IP", "value": "127.0.0.5", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "explicit metadata IP still needs flag (P2-1)", "kind": "IP", "value": "169.254.169.254", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "explicit private CIDR still needs flag (P2-1)", "kind": "IP", "value": "10.1.2.3", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "explicit IPv6 unique-local CIDR still needs flag (P2-1)", "kind": "IP", "value": "fd00::1", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "explicit documentation IPv6 CIDR allowed (P2-1)", "kind": "IP", "value": "2001:db8::5", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
+    { "name": "explicit private CIDR via URL still needs flag (P2-1)", "kind": "URL", "value": "http://10.1.2.3/", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "DNS answer inside explicit private CIDR still needs flag (P2-1)", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["10.9.9.9"], "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "DNS answer equal to explicit loopback IP still needs flag (P2-1)", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["127.0.0.5"], "expected": { "allowed": false, "code": "RESTRICTED_ADDRESS_SPACE" } },
+    { "name": "DNS answer inside explicit documentation CIDR allowed (P2-1)", "kind": "HOST", "value": "app.example.com", "capability": "ACTIVE_HTTP", "resolvedAddresses": ["198.51.100.7"], "expected": { "allowed": true, "code": "ALLOWED" } },
     { "name": "domain kind", "kind": "DOMAIN", "value": "example.com", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
     { "name": "url allowed", "kind": "URL", "value": "https://example.com/", "capability": "ACTIVE_HTTP", "expected": { "allowed": true, "code": "ALLOWED" } },
     { "name": "invalid url", "kind": "URL", "value": "ftp://example.com/", "capability": "ACTIVE_HTTP", "expected": { "allowed": false, "code": "INVALID_TARGET" } },

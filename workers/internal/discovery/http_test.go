@@ -29,11 +29,12 @@ func (f funcResolver) LookupHost(ctx context.Context, host string) ([]string, er
 func (f funcResolver) LookupCNAME(context.Context, string) (string, error)  { return "", nil }
 func (f funcResolver) LookupAddr(context.Context, string) ([]string, error) { return nil, nil }
 
-// httpPolicy authorizes the example.com registrable domain and explicitly authorizes only the
-// loopback address 127.0.0.1 (so the test HTTP servers are reachable) while leaving all other
-// restricted addresses denied. INTERNAL_NETWORK is deliberately absent.
+// httpPolicy authorizes the example.com registrable domain and explicitly lists only the loopback
+// address 127.0.0.1 so the test HTTP servers are reachable. Reaching it requires the full triple
+// (P2-1): the explicit entry, INTERNAL_NETWORK, and Job.AllowRestrictedAddresses (set by the job
+// builders). All other restricted addresses stay denied because they are not listed.
 func httpPolicy() scope.Policy {
-	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP")
+	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "INTERNAL_NETWORK")
 	p.InScope.IPs = []string{"127.0.0.1"}
 	p.Exclusions.Hosts = []string{"blocked.example.com"}
 	return p
@@ -42,7 +43,7 @@ func httpPolicy() scope.Policy {
 func httpJob(urls []string, opts ...func(*Job)) Job {
 	j := Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "04", JobKey: "04",
-		Kind: "HTTP_PROBE", Provider: "builtin-http", Policy: httpPolicy(),
+		Kind: "HTTP_PROBE", Provider: "builtin-http", Policy: httpPolicy(), AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 10, CrawlDepth: 1, MaxRuntimeSeconds: 60, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{URLs: urls},
 	}
@@ -392,5 +393,31 @@ func TestHttpScopeDeniedWhenCapabilityMissing(t *testing.T) {
 	res, _ := Run(context.Background(), job, nil)
 	if res.Status != StatusBlocked {
 		t.Fatalf("status=%s want BLOCKED", res.Status)
+	}
+}
+
+// P2-1: listing 127.0.0.1 in scope is not enough to reach it. Without the restricted-address
+// override the connection is refused, and a missing INTERNAL_NETWORK capability has the same effect.
+func TestHttpExplicitRestrictedEntryAloneIsNotEnough(t *testing.T) {
+	srv := redirectServer(t, "/next")
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+
+	noFlag := httpJob([]string{"http://example.com:" + portOf(t, srv.URL) + "/start"}, func(j *Job) { j.AllowRestrictedAddresses = false })
+	noCap := httpJob([]string{"http://example.com:" + portOf(t, srv.URL) + "/start"}, func(j *Job) {
+		j.Policy.Authorization.Capabilities = []string{"PASSIVE", "DNS", "ACTIVE_HTTP"}
+	})
+	for name, job := range map[string]Job{"no override": noFlag, "no INTERNAL_NETWORK": noCap} {
+		res, _ := Run(context.Background(), job, nil)
+		h := statusOf(res)
+		if h == nil {
+			t.Fatalf("%s: expected an observation recording the blocked connection", name)
+		}
+		if h.StatusCode != nil {
+			t.Fatalf("%s: connection to explicitly listed loopback must be refused, got status %d", name, *h.StatusCode)
+		}
+		if h.ProbeStatus != ProbeBlockedAddress {
+			t.Fatalf("%s: expected BLOCKED_ADDRESS, got %s (%s)", name, h.ProbeStatus, h.Error)
+		}
 	}
 }

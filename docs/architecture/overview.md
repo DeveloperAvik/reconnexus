@@ -56,8 +56,9 @@ must be fed via a transactional outbox — it is never a second source of truth.
 - The same policy is enforced **again** independently in Go on the worker side (defence in depth).
 - Destination addresses are validated at connection time (loopback, link-local, private, CGNAT,
   metadata, IPv4-mapped IPv6), catching DNS rebinding and redirect pivots.
-- Restricted address space is denied by default and requires both the `INTERNAL_NETWORK`
-  capability **and** an operator override.
+- Restricted address space is denied by default and requires an explicit in-scope IP/CIDR entry,
+  the `INTERNAL_NETWORK` capability **and** an operator override (documentation ranges need only
+  the explicit entry); see `docs/threat-model/scope-enforcement.md`.
 - Provider processes are invoked with argv arrays — never a shell.
 
 See [threat-model/scope-enforcement.md](../threat-model/scope-enforcement.md).

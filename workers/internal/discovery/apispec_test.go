@@ -14,7 +14,7 @@ import (
 func apiJob(urls []string, opts ...func(*Job)) Job {
 	j := Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "08", JobKey: "08",
-		Kind: "API_SPEC", Provider: "builtin-api", Policy: jsPolicy(),
+		Kind: "API_SPEC", Provider: "builtin-api", Policy: jsPolicy(), AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 20, CrawlDepth: 1, MaxRuntimeSeconds: 60, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{SpecURLs: urls},
 	}

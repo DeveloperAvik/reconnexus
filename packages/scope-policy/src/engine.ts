@@ -177,9 +177,17 @@ export class ScopeEngine {
       ipInCidrList(ip, this.policy.inScope.cidrs) !== null;
 
     if (cls.isSpecial) {
-      // A specific in-scope IP/CIDR entry is an explicit authorization to that exact destination.
-      if (explicitlyAllowedIp) {
-        return { address, allowed: true, reason: "explicitly authorized in-scope address" };
+      // Policy (P2-1, docs/threat-model/scope-enforcement.md "Restricted address space"):
+      //  - documentation ranges (RFC 5737 / RFC 3849) listed in scope are allowed outright;
+      //  - every other restricted class must be explicitly listed in inScope.ips/cidrs AND the policy
+      //    must grant INTERNAL_NETWORK AND network.allowRestrictedAddresses must be set.
+      // The override never opens unlisted restricted space, so a name rebinding to an unlisted
+      // private/loopback/metadata address is always denied. Mirrors workers/internal/scope/scope.go.
+      if (explicitlyAllowedIp && cls.isDocumentation) {
+        return { address, allowed: true, reason: "explicitly authorized in-scope documentation address" };
+      }
+      if (!explicitlyAllowedIp) {
+        return { address, allowed: false, reason: `restricted address space (${describeSpecial(cls)}) is not explicitly listed in inScope.ips/cidrs` };
       }
       if (!this.allowRestricted || !this.policy.authorization.capabilities.includes(Capability.INTERNAL_NETWORK)) {
         return {

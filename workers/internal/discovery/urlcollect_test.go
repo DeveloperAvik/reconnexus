@@ -16,12 +16,12 @@ import (
 )
 
 func urlJob(seeds, domains []string, opts ...func(*Job)) Job {
-	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "CRAWL")
+	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "CRAWL", "INTERNAL_NETWORK")
 	p.InScope.IPs = []string{"127.0.0.1"}
 	p.Exclusions.Hosts = []string{"blocked.example.com"}
 	j := Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "05", JobKey: "05",
-		Kind: "URL_COLLECTION", Provider: "builtin-crawler", Policy: p,
+		Kind: "URL_COLLECTION", Provider: "builtin-crawler", Policy: p, AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 20, CrawlDepth: 2, MaxRuntimeSeconds: 60, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{SeedURLs: seeds, Domains: domains},
 	}

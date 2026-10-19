@@ -13,7 +13,7 @@ import (
 )
 
 func jsPolicy() scope.Policy {
-	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "CRAWL", "JS_ANALYSIS", "API_DISCOVERY")
+	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "CRAWL", "JS_ANALYSIS", "API_DISCOVERY", "INTERNAL_NETWORK")
 	p.InScope.IPs = []string{"127.0.0.1"}
 	return p
 }
@@ -21,7 +21,7 @@ func jsPolicy() scope.Policy {
 func jsJob(urls []string, opts ...func(*Job)) Job {
 	j := Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "07", JobKey: "07",
-		Kind: "JS_ANALYSIS", Provider: "builtin-js", Policy: jsPolicy(),
+		Kind: "JS_ANALYSIS", Provider: "builtin-js", Policy: jsPolicy(), AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 20, CrawlDepth: 1, MaxRuntimeSeconds: 60, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{JSURLs: urls},
 	}

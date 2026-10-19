@@ -15,7 +15,7 @@ import (
 )
 
 func secScanPolicy() scope.Policy {
-	p := testPolicy("PASSIVE", "ACTIVE_HTTP", "SECRET_SCAN")
+	p := testPolicy("PASSIVE", "ACTIVE_HTTP", "SECRET_SCAN", "INTERNAL_NETWORK")
 	p.InScope.IPs = []string{"127.0.0.1"}
 	return p
 }
@@ -23,7 +23,7 @@ func secScanPolicy() scope.Policy {
 func secScanJob(urls []string, opts ...func(*Job)) Job {
 	j := Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "09", JobKey: "09",
-		Kind: "SECRET_SCAN", Provider: "builtin-secret-scan", Policy: secScanPolicy(),
+		Kind: "SECRET_SCAN", Provider: "builtin-secret-scan", Policy: secScanPolicy(), AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 20, CrawlDepth: 1, MaxRuntimeSeconds: 30, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{ArtifactURLs: urls},
 	}

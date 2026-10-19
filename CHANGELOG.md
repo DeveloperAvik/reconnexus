@@ -4,6 +4,18 @@ All notable changes are documented here. This project distinguishes implemented 
 planned functionality; entries only describe what is actually implemented and tested.
 
 
+## [Unreleased]
+
+### Fixed
+
+- **Restricted-address scope policy (P2-1):** an explicit `inScope.ips`/`cidrs` entry no longer
+  bypasses the `INTERNAL_NETWORK` capability and restricted-address override. Restricted classes now
+  require the entry, the capability and the override together (as documented), and the override no
+  longer opens unlisted restricted space. Documentation ranges remain allowed by explicit entry
+  alone. Applied identically in the TypeScript and Go engines; conformance fixtures extended.
+  **Behavior change:** policies relying on a bare `127.0.0.1`/private entry now need
+  `INTERNAL_NETWORK` plus `--allow-restricted`.
+
 ## [0.20.0] — Admin login & cPanel finder
 
 ### Added

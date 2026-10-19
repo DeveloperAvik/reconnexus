@@ -137,5 +137,8 @@ recorded per observation (`TIMEOUT`, `CONNECTION_ERROR`, `TLS_ERROR`, `REDIRECT_
 
 - Restricted address space (`loopback`, `private`, `link-local`, `CGNAT`, `metadata`, `reserved`)
   is **denied by default**, with or without the `INTERNAL_NETWORK` capability.
-- To reach explicitly authorized restricted destinations, both an in-scope IP/CIDR entry **and**
-  `network.allowRestrictedAddresses` (or `--allow-restricted`) are required.
+- To reach explicitly authorized restricted destinations, **all three** are required: an in-scope
+  IP/CIDR entry, the `INTERNAL_NETWORK` capability, **and** `network.allowRestrictedAddresses` (or
+  `--allow-restricted`). The override never opens unlisted restricted space. The only exception is
+  documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`), where
+  the explicit entry alone suffices.

@@ -51,8 +51,9 @@ URL is **not** authorization to scan every discovered host.
 
 The destination is special/restricted. To intentionally reach an explicitly authorized restricted
 destination, add it to `inScope.ips`/`cidrs` **and** grant `INTERNAL_NETWORK` **and** set
-`network.allowRestrictedAddresses` (or pass `--allow-restricted`). Do this only for authorized
-lab targets.
+`network.allowRestrictedAddresses` (or pass `--allow-restricted`). All three are required; an
+unlisted restricted address stays denied even with the capability and override. Documentation
+ranges need only the explicit entry. Do this only for authorized lab targets.
 
 ### `EXCLUDED` / `EXCLUDED_PATH`
 

@@ -43,6 +43,33 @@ out-of-scope connection.
 | **Policy drift** — reused version with different content | `scope_policies` is unique per `(project_id, version)`; a mismatched `policyId` is rejected. |
 | **Credential leakage in logs** | Central redaction for sensitive keys and secret-shaped values (TS + Go). |
 
+## Restricted address space (P2-1)
+
+Restricted classes: loopback, private/unique-local, link-local, CGNAT, cloud metadata, multicast,
+unspecified, broadcast and reserved ranges. The address check runs on every literal IP target and on
+every DNS-resolved answer (initial request, each redirect hop, and at dial time), before the
+positive scope match. Both engines (`packages/scope-policy/src/engine.ts`,
+`workers/internal/scope/scope.go`) implement the same rule:
+
+| Address | Allowed when |
+| --- | --- |
+| Public / routable | Normal scope rules apply. |
+| Documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`) | Explicitly listed in `inScope.ips`/`cidrs`. These are never routable, so no override is needed. |
+| Any other restricted class | **All three**: listed in `inScope.ips`/`cidrs`, **and** the policy grants `INTERNAL_NETWORK`, **and** the operator override is set (`network.allowRestrictedAddresses` / `--allow-restricted`; worker: `allowRestrictedAddresses`). |
+
+Consequences:
+
+- An explicit IP/CIDR entry alone never reaches loopback, private, link-local or metadata space.
+  (Before P2-1 the engines let an explicit entry bypass the capability and override; the docs already
+  required all three, so the code was brought in line.)
+- The override never opens unlisted restricted space. A name that rebinds to an unlisted
+  private/loopback/metadata address is denied even with `INTERNAL_NETWORK` and the override on.
+- A DNS answer that falls inside an explicitly listed restricted CIDR is treated like a literal
+  entry: it additionally needs the capability and override.
+- Exclusions still win over inclusions, and IPv4-mapped IPv6 forms are unwrapped before all checks.
+- Residual: with the full triple present, an in-scope hostname resolving to a *listed* restricted
+  address is permitted. That is the explicit operator authorization.
+
 ## Test gates
 
 The security suite (`test/security/scope-security.test.ts`) is a **release gate**: it fails if any

@@ -29,7 +29,7 @@ func (r takeoverResolver) LookupCNAME(_ context.Context, host string) (string, e
 func (r takeoverResolver) LookupAddr(context.Context, string) ([]string, error) { return nil, nil }
 
 func takeoverPolicy() scope.Policy {
-	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "TAKEOVER_CHECK")
+	p := testPolicy("PASSIVE", "DNS", "ACTIVE_HTTP", "TAKEOVER_CHECK", "INTERNAL_NETWORK")
 	p.InScope.IPs = []string{"127.0.0.1"}
 	return p
 }
@@ -37,7 +37,7 @@ func takeoverPolicy() scope.Policy {
 func takeoverJob(urls []string) Job {
 	return Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "13", JobKey: "13",
-		Kind: "TAKEOVER", Provider: "builtin-takeover", Policy: takeoverPolicy(),
+		Kind: "TAKEOVER", Provider: "builtin-takeover", Policy: takeoverPolicy(), AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 20, CrawlDepth: 1, MaxRuntimeSeconds: 30, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{URLs: urls},
 	}

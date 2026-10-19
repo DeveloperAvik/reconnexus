@@ -17,6 +17,8 @@ export interface IpClassification {
   isBroadcast: boolean;
   isReserved: boolean;
   isMetadata: boolean;
+  /** RFC 5737 / RFC 3849 documentation ranges (a subset of `isReserved`); never routable and not a network-pivot risk. */
+  isDocumentation: boolean;
   /** true when any of the above non-routable/special categories apply */
   isSpecial: boolean;
 }
@@ -208,6 +210,9 @@ export function classifyIp(ip: ParsedIp): IpClassification {
       inRange(value, "203.0.113.0", 24) ||
       inRange(value, "240.0.0.0", 4)
     : inRange(value, "2001:db8::", 32);
+  const documentation = is4
+    ? inRange(value, "192.0.2.0", 24) || inRange(value, "198.51.100.0", 24) || inRange(value, "203.0.113.0", 24)
+    : inRange(value, "2001:db8::", 32);
   const metadata = is4 && value === v4ToBigInt(169, 254, 169, 254);
   const metadataV6 = !is4 && value === (parseIp("fd00:ec2::254")!.value);
 
@@ -224,6 +229,7 @@ export function classifyIp(ip: ParsedIp): IpClassification {
     isBroadcast: broadcast,
     isReserved: reserved,
     isMetadata,
+    isDocumentation: documentation,
     isSpecial:
       isPrivate || loopback || linkLocal || cgnat || multicast || unspecified || broadcast || reserved || isMetadata,
   };

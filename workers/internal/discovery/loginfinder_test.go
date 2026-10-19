@@ -20,7 +20,7 @@ func loginFinderPolicy(ips ...string) scope.Policy {
 			AuthorizedBy: "test",
 			ValidFrom:    time.Now().Add(-time.Hour).UTC(),
 			ValidUntil:   time.Now().Add(time.Hour).UTC(),
-			Capabilities: []string{"ACTIVE_HTTP"},
+			Capabilities: []string{"ACTIVE_HTTP", "INTERNAL_NETWORK"},
 		},
 		InScope: scope.InScope{IPs: ips},
 		Limits:  scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 0, MaxArtifactBytes: 256 * 1024},
@@ -29,17 +29,26 @@ func loginFinderPolicy(ips ...string) scope.Policy {
 
 func loginFinderJob(origin string) Job {
 	return Job{
-		SchemaVersion:    1,
-		Kind:             "LOGIN_FINDER",
-		Provider:         "builtin-login-finder",
-		Inputs:           Inputs{URLs: []string{origin}},
-		Limits:           scope.Limits{MaxConcurrency: 4, MaxArtifactBytes: 256 * 1024},
-		RequestTimeoutMs: 2000,
-		MaxRedirects:     2,
+		SchemaVersion:            1,
+		Kind:                     "LOGIN_FINDER",
+		Provider:                 "builtin-login-finder",
+		Inputs:                   Inputs{URLs: []string{origin}},
+		Limits:                   scope.Limits{MaxConcurrency: 4, MaxArtifactBytes: 256 * 1024},
+		RequestTimeoutMs:         2000,
+		MaxRedirects:             2,
+		AllowRestrictedAddresses: true,
 	}
 }
 
 func policyPtr(p scope.Policy) *scope.Policy { return &p }
+
+// restrictedEngine builds an engine with the restricted-address override enabled, as the loopback
+// test servers require the full triple: explicit entry, INTERNAL_NETWORK and the override.
+func restrictedEngine(p scope.Policy) *scope.Engine {
+	e := scope.NewEngine(policyPtr(p))
+	e.AllowRestrictedAddress = true
+	return e
+}
 
 func TestLoginFinderDetectsAdminAndCpanel(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +71,7 @@ func TestLoginFinderDetectsAdminAndCpanel(t *testing.T) {
 	host, _, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	pc := ProviderContext{
 		Job:    loginFinderJob(srv.URL + "/"),
-		Engine: scope.NewEngine(policyPtr(loginFinderPolicy(host))),
+		Engine: restrictedEngine(loginFinderPolicy(host)),
 	}
 	res, err := (builtinLoginFinder{}).Run(context.Background(), pc)
 	if err != nil {
@@ -104,7 +113,7 @@ func TestLoginFinderIgnoresGenericPages(t *testing.T) {
 	host, _, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	pc := ProviderContext{
 		Job:    loginFinderJob(srv.URL + "/"),
-		Engine: scope.NewEngine(policyPtr(loginFinderPolicy(host))),
+		Engine: restrictedEngine(loginFinderPolicy(host)),
 	}
 	res, err := (builtinLoginFinder{}).Run(context.Background(), pc)
 	if err != nil {

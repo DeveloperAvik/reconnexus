@@ -15,7 +15,7 @@ import (
 )
 
 func secPolicy() scope.Policy {
-	p := testPolicy("PASSIVE", "ACTIVE_HTTP", "SECURITY_CHECKS")
+	p := testPolicy("PASSIVE", "ACTIVE_HTTP", "SECURITY_CHECKS", "INTERNAL_NETWORK")
 	p.InScope.IPs = []string{"127.0.0.1"}
 	return p
 }
@@ -23,7 +23,7 @@ func secPolicy() scope.Policy {
 func secJob(urls []string, opts ...func(*Job)) Job {
 	j := Job{
 		SchemaVersion: 1, ScanID: "s", ProjectID: "p", Stage: "10", JobKey: "10",
-		Kind: "SECURITY_META", Provider: "builtin-security-meta", Policy: secPolicy(),
+		Kind: "SECURITY_META", Provider: "builtin-security-meta", Policy: secPolicy(), AllowRestrictedAddresses: true,
 		Limits: scope.Limits{MaxConcurrency: 4, RequestsPerSecond: 20, CrawlDepth: 1, MaxRuntimeSeconds: 30, MaxArtifactBytes: 1 << 20},
 		Inputs: Inputs{URLs: urls},
 	}
