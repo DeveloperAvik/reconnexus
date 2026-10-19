@@ -17,6 +17,7 @@ import {
 import { Repository, type JobRow, type ScanRow } from "../repository.js";
 import { ingestDiscoveryResult, recordProviderExecution, upsertAsset, insertObservation, upsertCoverageInternal, upsertProviderOutcome, upsertRelationship, sha256Hex } from "./ingest.js";
 import { buildReport, redactReport, ReportRedactionError, type Redactor } from "../reporting/report.js";
+import { dependenciesSatisfied, deriveScanStatus } from "./scan-status.js";
 import { NON_RETRYABLE_SETTLED, aggregate, coverageStatusFor, countRecordsByType, fingerprintCorrelationStatus, isRetryableProviderOutcome, shouldRetryStage } from "./outcome-policy.js";
 import type { OrchestratorDeps, OrchestratorEvent, ProviderOutcomeSummary, ScanRunSummary } from "./types.js";
 import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CORR_EDGES, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, defaultSleep, looksLikeJs, looksLikeSpec, originOfUrl, sorted } from "./stage-config.js";
@@ -118,9 +119,9 @@ export class ScanOrchestrator {
         this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.CANCELLED, durationMs: 0, records: 0, attempts: job.attempts });
         continue;
       }
-      if (completed.has(job.job_key) || !this.dependenciesSatisfied(job, jobs, completed)) {
+      if (completed.has(job.job_key) || !dependenciesSatisfied(job, jobs, completed)) {
         // Dependencies failed or not yet satisfied.
-        if (!this.dependenciesSatisfied(job, jobs, completed)) {
+        if (!dependenciesSatisfied(job, jobs, completed)) {
           await this.repo.setJobStatus(scanId, job.job_key, JobStatus.BLOCKED, "a prerequisite stage did not succeed");
           stageSummaries.push({ stage: job.stage, status: JobStatus.BLOCKED, providers: [], reason: "a prerequisite stage did not succeed" });
           this.emitEvent({ type: "stage-end", stage: job.stage, status: JobStatus.BLOCKED, durationMs: 0, records: 0, attempts: job.attempts, reason: "a prerequisite stage did not succeed" });
@@ -204,15 +205,6 @@ export class ScanOrchestrator {
     if (this.deps.signal?.aborted) return true;
     const scan = await this.repo.getScan(scanId);
     return scan?.status === JobStatus.CANCELLED;
-  }
-
-  private dependenciesSatisfied(job: JobRow, all: JobRow[], completed: Set<string>): boolean {
-    if (job.depends_on.length === 0) return true;
-    return job.depends_on.every((dep) => {
-      const depJob = all.find((j) => j.job_key === dep);
-      if (!depJob) return true;
-      return [JobStatus.SUCCEEDED, JobStatus.PARTIAL, JobStatus.SKIPPED].includes(depJob.status as never) || completed.has(dep);
-    });
   }
 
   private async runStageWithRetries(
@@ -1076,21 +1068,8 @@ export class ScanOrchestrator {
     const current = await this.repo.getScan(scanId);
     if (current?.status === JobStatus.CANCELLED) return JobStatus.CANCELLED;
     const jobs = await this.repo.getJobRows(scanId);
-    const statuses = jobs.map((j) => j.status);
-    if (statuses.some((s) => s === JobStatus.RUNNING || s === JobStatus.QUEUED)) {
-      // Something was left incomplete by an unexpected stop.
-      return JobStatus.PARTIAL;
-    }
-    const anySuccess = statuses.some((s) => s === JobStatus.SUCCEEDED || s === JobStatus.PARTIAL);
-    const anyFail = statuses.some((s) => s === JobStatus.FAILED || s === JobStatus.SOURCE_UNAVAILABLE || s === JobStatus.BLOCKED);
-    const anySkipped = statuses.some((s) => s === JobStatus.SKIPPED);
-    const allSucceeded = statuses.every((s) => s === JobStatus.SUCCEEDED);
-    if (allSucceeded) return JobStatus.SUCCEEDED;
-    if (anySuccess && (anyFail || anySkipped)) return JobStatus.PARTIAL;
-    if (anyFail && !anySuccess) return JobStatus.FAILED;
-    if (anySkipped) return JobStatus.PARTIAL;
     void scan;
-    return JobStatus.PARTIAL;
+    return deriveScanStatus(jobs.map((j) => j.status));
   }
 }
 
