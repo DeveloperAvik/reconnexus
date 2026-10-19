@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { createDb, FakeRunner, Repository, ScanOrchestrator, ScanService, type DiscoveryRunner } from "@reconnexus/control-plane";
+import { buildReport, createDb, FakeRunner, Repository, ScanOrchestrator, ScanService, type DiscoveryRunner } from "@reconnexus/control-plane";
 import { LocalArtifactStore } from "@reconnexus/evidence-contracts";
 import { ScopePolicySchema, type DiscoveryResult } from "@reconnexus/contracts";
 import { loadConfig } from "@reconnexus/configuration";
@@ -120,6 +120,9 @@ describe.skipIf(!available)("Stage 11 correlation", () => {
       expect(cov?.status).toBe("COLLECTED");
       expect((cov?.details as { secretGroups: number }).secretGroups).toBe(1);
       expect((cov?.details as { edges: number }).edges).toBe(1);
+      // C's finding is unkeyed, so correlation is reported as partial rather than silently complete.
+      expect((cov?.details as { secretFingerprintCorrelation: string }).secretFingerprintCorrelation).toBe("PARTIAL_UNKEYED");
+      expect(cov?.notes).toContain("secretFingerprintCorrelation=PARTIAL");
 
       // Idempotency: rerun → identical counts and edges.
       await new ScanOrchestrator({ db, runner: emptyRunner, store: new LocalArtifactStore(config.artifacts.root), logger: log, config }).runScan(scanId);
@@ -127,6 +130,64 @@ describe.skipIf(!available)("Stage 11 correlation", () => {
       const edges2 = await repo.listCorrelationEdges(scanId);
       expect(obs2.length).toBe(obs.length);
       expect(edges2.length).toBe(edges.length);
+    } finally {
+      await db.query("DELETE FROM projects WHERE root_domain=$1", [rootDomain]).catch(() => undefined);
+      await db.query("DELETE FROM workspaces WHERE name=$1", [workspace]).catch(() => undefined);
+      await db.close();
+    }
+  });
+
+  it("reports disabled fingerprint correlation (no HMAC key) in coverage and the report, without hiding findings or leaking anything", async () => {
+    const db = createDb(config.database);
+    const rand = Math.random().toString(36).slice(2, 8);
+    const rootDomain = `rn-${rand}.example.net`;
+    const host = `app.${rootDomain}`;
+    const workspace = `corrk${rand}`;
+    let projectId = "";
+    let scanId = "";
+    try {
+      const created = await new ScanService(db).createScan({ startUrl: `https://${host}/`, policy: ScopePolicySchema.parse(makePolicy(rootDomain)), workspaceName: workspace });
+      scanId = created.scanId;
+      projectId = created.projectId;
+      for (const name of ["a.js", "b.js"]) {
+        const url = `https://${host}/${name}`;
+        const asset = (await db.query<{ id: string }>("INSERT INTO assets (project_id,type,canonical_key,value) VALUES ($1,'URL',$2,$2) RETURNING id", [projectId, url])).rows[0]!.id;
+        // Secret detected, but no key => empty fingerprint and hmacKeyed=false.
+        await db.query(
+          `INSERT INTO observations (project_id,scan_id,asset_id,source,source_reliability,observed_at,kind,data)
+           VALUES ($1,$2,$3,'builtin-secret-scan','MEDIUM', now(),'secret-finding',$4::jsonb), ($1,$2,$3,'builtin-secret-scan','MEDIUM', now(),'secret-scan-artifact',$5::jsonb)`,
+          [projectId, scanId, asset, JSON.stringify({ ruleId: "aws-access-key-id", fingerprint: "", status: "HIGH_CONFIDENCE", redactedSnippet: "x='[REDACTED]'" }), JSON.stringify({ hmacKeyed: false, status: "ANALYZED" })],
+        );
+      }
+      const summary = await new ScanOrchestrator({ db, runner: emptyRunner, store: new LocalArtifactStore(config.artifacts.root), logger: log, config }).runScan(scanId);
+      // Correlation is not reported as a failure: the stage still runs to completion.
+      expect(summary.stages.find((s) => s.stage === "11-correlation")?.status).toBe("SUCCEEDED");
+
+      const repo = new Repository(db);
+      const cov = (await repo.listCoverage(scanId)).find((c) => c.stage === "11-correlation");
+      expect((cov?.details as { secretFingerprintCorrelation: string }).secretFingerprintCorrelation).toBe("DISABLED_NO_HMAC_KEY");
+      expect(cov?.notes).toContain("secretFingerprintCorrelation=DISABLED");
+      expect(cov?.notes).toContain("RECONNEXUS_HMAC_KEY");
+      expect(cov?.notes).toContain("secret detection is unaffected");
+      expect((cov?.details as { secretGroups: number }).secretGroups).toBe(0);
+
+      // Visible in the report's stage rows; the secret findings themselves are still reported.
+      const report = await buildReport(repo, scanId, { now: new Date("2026-01-01T00:00:00Z") });
+      const stage = report!.stages.find((s) => s.stage === "11-correlation");
+      expect(stage?.notes).toContain("secretFingerprintCorrelation=DISABLED");
+      expect(report!.secretFindings.length).toBe(2);
+      expect(JSON.stringify(report)).not.toMatch(/HMAC_KEY=|key material/i);
+      // With a (synthetic) key in the environment, it must not surface in coverage or the report either.
+      const prev = process.env.RECONNEXUS_HMAC_KEY;
+      process.env.RECONNEXUS_HMAC_KEY = "synthetic-leak-probe-0123456789abcdef";
+      try {
+        await new ScanOrchestrator({ db, runner: emptyRunner, store: new LocalArtifactStore(config.artifacts.root), logger: log, config }).runScan(scanId);
+        const after = JSON.stringify({ cov: await repo.listCoverage(scanId), report: await buildReport(repo, scanId, { now: new Date("2026-01-01T00:00:00Z") }) });
+        expect(after).not.toContain("synthetic-leak-probe");
+      } finally {
+        if (prev === undefined) delete process.env.RECONNEXUS_HMAC_KEY;
+        else process.env.RECONNEXUS_HMAC_KEY = prev;
+      }
     } finally {
       await db.query("DELETE FROM projects WHERE root_domain=$1", [rootDomain]).catch(() => undefined);
       await db.query("DELETE FROM workspaces WHERE name=$1", [workspace]).catch(() => undefined);

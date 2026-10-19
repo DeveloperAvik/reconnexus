@@ -55,6 +55,13 @@ destination, add it to `inScope.ips`/`cidrs` **and** grant `INTERNAL_NETWORK` **
 unlisted restricted address stays denied even with the capability and override. Documentation
 ranges need only the explicit entry. Do this only for authorized lab targets.
 
+### `secret-fingerprint correlation disabled` / `doctor` warns about `RECONNEXUS_HMAC_KEY`
+
+`RECONNEXUS_HMAC_KEY` is not set (or is empty). Secret detection works normally; only correlation
+of the same secret across artifacts and scans is off. Generate a key with `openssl rand -hex 32`,
+export it (ReconNexus does not load `.env` by itself) and re-run the scan; see
+[`RECONNEXUS_HMAC_KEY`](configuration.md#reconnexus_hmac_key).
+
 ### `EXCLUDED` / `EXCLUDED_PATH`
 
 An exclusion matched (exclusions take precedence). Adjust `exclusions` if the policy is wrong.

@@ -8,6 +8,14 @@ planned functionality; entries only describe what is actually implemented and te
 
 ### Fixed
 
+- **`RECONNEXUS_HMAC_KEY` documentation and diagnostics (P2-3):** documented what the key enables, how
+  to generate and store it, and the effect of a missing key or key change (`docs/operations/
+  configuration.md`, `.env.example`, README). A missing/empty key no longer disables secret-fingerprint
+  correlation silently: `doctor` warns, the stage-09 provider diagnostic says correlation is disabled
+  while detection is unaffected, and stage 11 records `DISABLED_NO_HMAC_KEY`/`PARTIAL_UNKEYED` in
+  coverage notes, details and the report. Keys shorter than 16 bytes are flagged as weak. The key is
+  never logged or reported. Detection and fingerprint behavior are unchanged.
+
 - **Mixed-outcome stage retries (P2-2):** a stage is now retried when any provider failed, not only
   when every provider failed, so `FAILED + SUCCEEDED/SKIPPED/SOURCE_UNAVAILABLE` stages recover from
   transient failures. Only the `FAILED` providers re-run; successful/partial providers are reused and

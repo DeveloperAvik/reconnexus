@@ -50,7 +50,9 @@ secrets, JWTs, bearer tokens, embedded credentials, and password assignments.
   key body or a neighbouring secret can leak.
 - Cross-record correlation uses a **keyed HMAC-SHA256** of `rule|value` (key from
   `RECONNEXUS_HMAC_KEY`); without a key the fingerprint is empty (`hmacKeyed=false`). A plain hash is
-  never used.
+  never used. See [`RECONNEXUS_HMAC_KEY`](../operations/configuration.md#reconnexus_hmac_key) for
+  setup. A missing key disables correlation only; detection and redaction are unchanged, and the
+  state is reported by `doctor`, the stage-09 diagnostic and stage 11 coverage.
 
 Lifecycle states: `CANDIDATE`, `HIGH_CONFIDENCE`, `SUPPRESSED`, `ANALYSIS_FAILED`. There is no
 `VALIDATED`/`ACTIVE` state.

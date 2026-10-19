@@ -100,7 +100,7 @@ npm run rn -- init --domain example.com --authorized-by "Your Name" --reference 
 # 3. Database + environment check
 createdb reconnexus
 npm run rn -- config migrate
-npm run rn -- doctor
+npm run rn -- doctor   # also warns if RECONNEXUS_HMAC_KEY is unset (secret-fingerprint correlation off)
 
 # 4. Build the Go discovery worker used by scans
 make worker-build

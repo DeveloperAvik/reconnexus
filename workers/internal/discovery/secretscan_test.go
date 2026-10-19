@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -294,5 +295,123 @@ func TestSecretScanBlockedWithoutCapability(t *testing.T) {
 	res, _ := Run(context.Background(), job, nil)
 	if res.Status != StatusBlocked {
 		t.Fatalf("status=%s want BLOCKED", res.Status)
+	}
+}
+
+func hasDiag(res Result, substr string) bool {
+	for _, d := range res.Diagnostics {
+		if strings.Contains(d, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHmacKeyDiagnosticStates(t *testing.T) {
+	if got := hmacKeyDiagnostic(nil); !strings.Contains(got, "correlation disabled") || !strings.Contains(got, "RECONNEXUS_HMAC_KEY") || !strings.Contains(got, "detection is unaffected") {
+		t.Errorf("missing-key diagnostic unclear: %q", got)
+	}
+	if got := hmacKeyDiagnostic([]byte("")); got == "" {
+		t.Errorf("empty key must produce a diagnostic")
+	}
+	weak := "weak-synthetic"
+	if got := hmacKeyDiagnostic([]byte(weak)); !strings.Contains(got, "weak") || strings.Contains(got, weak) {
+		t.Errorf("weak-key diagnostic wrong or discloses key: %q", got)
+	}
+	strong := "synthetic-test-key-0123456789abcdef0123"
+	if got := hmacKeyDiagnostic([]byte(strong)); got != "" {
+		t.Errorf("adequate key must produce no diagnostic, got %q", got)
+	}
+}
+
+func TestSecretScanMissingOrEmptyKeyReportsDisabledCorrelationButStillDetects(t *testing.T) {
+	for name, set := range map[string]func(*testing.T){
+		"empty": func(t *testing.T) { t.Setenv("RECONNEXUS_HMAC_KEY", "") },
+		"unset": func(t *testing.T) {
+			t.Setenv("RECONNEXUS_HMAC_KEY", "x")
+			os.Unsetenv("RECONNEXUS_HMAC_KEY")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			set(t)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, "const a='"+rawAWSKey+"';")
+			}))
+			defer srv.Close()
+			withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+			res, _ := Run(context.Background(), secScanJob([]string{srv.URL + "/a.js"}), nil)
+			// Detection is intact and the run is not reported as a failure.
+			if res.Status != StatusSucceeded {
+				t.Fatalf("status=%s diag=%v", res.Status, res.Diagnostics)
+			}
+			aws := findSecret(res, "aws-access-key-id")
+			if aws == nil || aws.Status != SecretHighConf || aws.Fingerprint != "" {
+				t.Fatalf("expected detected finding without fingerprint, got %+v", aws)
+			}
+			if !hasDiag(res, "correlation disabled") {
+				t.Fatalf("expected a correlation-disabled diagnostic, got %v", res.Diagnostics)
+			}
+			if hasDiag(res, "detection failed") {
+				t.Fatalf("diagnostic must not suggest detection failed: %v", res.Diagnostics)
+			}
+		})
+	}
+}
+
+func TestSecretScanConfiguredKeyHasNoDiagnosticAndNeverLeaksKey(t *testing.T) {
+	const key = "synthetic-test-key-0123456789abcdef0123"
+	t.Setenv("RECONNEXUS_HMAC_KEY", key)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "const a='"+rawAWSKey+"';")
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+	res, _ := Run(context.Background(), secScanJob([]string{srv.URL + "/a.js"}), nil)
+	aws := findSecret(res, "aws-access-key-id")
+	if aws == nil || aws.Fingerprint == "" {
+		t.Fatalf("configured key must yield a fingerprint, got %+v", aws)
+	}
+	if hasDiag(res, "correlation disabled") || hasDiag(res, "weak") {
+		t.Fatalf("no key diagnostic expected with an adequate key: %v", res.Diagnostics)
+	}
+	out, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), key) {
+		t.Fatalf("serialized result discloses the HMAC key")
+	}
+}
+
+func TestSecretScanWeakKeyWarnsWithoutDisclosingIt(t *testing.T) {
+	const key = "short-synth-key"
+	t.Setenv("RECONNEXUS_HMAC_KEY", key)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "const a='"+rawAWSKey+"';")
+	}))
+	defer srv.Close()
+	withResolver(t, funcResolver{fn: resolveExampleTo("127.0.0.1")})
+	res, _ := Run(context.Background(), secScanJob([]string{srv.URL + "/a.js"}), nil)
+	if aws := findSecret(res, "aws-access-key-id"); aws == nil || aws.Fingerprint == "" {
+		t.Fatalf("a weak key still fingerprints; got %+v", aws)
+	}
+	if !hasDiag(res, "weak") {
+		t.Fatalf("expected a weak-key warning, got %v", res.Diagnostics)
+	}
+	out, _ := json.Marshal(res)
+	if strings.Contains(string(out), key) {
+		t.Fatalf("serialized result discloses the HMAC key")
+	}
+}
+
+func TestHmacKeyDiagnosticThresholdBoundary(t *testing.T) {
+	if hmacKeyDiagnostic(make([]byte, 15)) == "" {
+		t.Errorf("15 bytes must be flagged weak")
+	}
+	if got := hmacKeyDiagnostic([]byte(strings.Repeat("k", 16))); got != "" {
+		t.Errorf("16 bytes must be accepted, got %q", got)
+	}
+	if got := hmacKeyDiagnostic([]byte("   ")); !strings.Contains(got, "weak") {
+		t.Errorf("whitespace-only key is set but weak, got %q", got)
 	}
 }

@@ -75,6 +75,32 @@ export async function checkAllProviders(config?: ReconNexusConfig): Promise<Prov
   return reports;
 }
 
+export const HMAC_KEY_ENV = "RECONNEXUS_HMAC_KEY";
+export const HMAC_KEY_MIN_BYTES = 16;
+
+export type HmacKeyState = "CONFIGURED" | "WEAK" | "NOT_SET";
+
+/**
+ * Report whether secret-fingerprint correlation has a usable HMAC key. Only the state and message
+ * are returned: the key, any prefix of it and its exact length are never exposed. A missing key is
+ * a warning, not a failure: secret detection works without it, only cross-artifact fingerprint
+ * correlation is disabled.
+ */
+export function checkHmacKey(env: NodeJS.ProcessEnv = process.env): { name: string; state: HmacKeyState; message: string } {
+  const key = env[HMAC_KEY_ENV] ?? "";
+  if (key.length === 0) {
+    return {
+      name: HMAC_KEY_ENV,
+      state: "NOT_SET",
+      message: `not set: secret detection still works, but secret-fingerprint correlation is disabled (set ${HMAC_KEY_ENV} to a random 32-byte key; see docs/operations/configuration.md)`,
+    };
+  }
+  if (Buffer.byteLength(key, "utf8") < HMAC_KEY_MIN_BYTES) {
+    return { name: HMAC_KEY_ENV, state: "WEAK", message: `set but shorter than ${HMAC_KEY_MIN_BYTES} bytes: use a random 32-byte key` };
+  }
+  return { name: HMAC_KEY_ENV, state: "CONFIGURED", message: "set: secret-fingerprint correlation is enabled" };
+}
+
 export interface DependencyCheck {
   name: string;
   ok: boolean;

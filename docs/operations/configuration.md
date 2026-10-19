@@ -99,7 +99,7 @@ Stage 09 (`builtin-secret-scan`) requires the `SECRET_SCAN` capability. Two envi
 control it:
 
 - `RECONNEXUS_HMAC_KEY` — enables keyed HMAC fingerprints for cross-record correlation (without it,
-  fingerprints are empty).
+  fingerprints are empty). See [`RECONNEXUS_HMAC_KEY`](#reconnexus_hmac_key) below.
 - `RECONNEXUS_SECRET_SUPPRESS_RULES` — comma-separated rule ids to suppress.
 
 An artifact whose upstream JS/spec stage was skipped yields no stage-09 work; a failed re-collection
@@ -142,3 +142,54 @@ recorded per observation (`TIMEOUT`, `CONNECTION_ERROR`, `TLS_ERROR`, `REDIRECT_
   `--allow-restricted`). The override never opens unlisted restricted space. The only exception is
   documentation ranges (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`, `2001:db8::/32`), where
   the explicit entry alone suffices.
+
+## `RECONNEXUS_HMAC_KEY`
+
+**What it enables.** Secret findings carry a *fingerprint*: `HMAC-SHA256(key, ruleId|value)`
+(truncated). Two artifacts whose findings share a rule and fingerprint are the same secret, and
+stage 11 links them (`shares_secret_fingerprint`) without ever storing the secret. The fingerprint is
+keyed on purpose: an unkeyed hash of a low-entropy secret could be brute-forced from the database or
+a report.
+
+**Generate and configure.**
+
+```bash
+openssl rand -hex 32            # 64 hex chars = 32 random bytes; any random string of 16+ bytes works
+export RECONNEXUS_HMAC_KEY=...  # or keep it in .env (git-ignored) and load it: set -a; . ./.env; set +a
+```
+
+ReconNexus does **not** read `.env` files itself; the variable must be in the environment of the
+process that runs the scan. The value is used byte-for-byte: leading/trailing whitespace and a
+trailing newline are part of the key (so write it with `printf`, not `echo`, when scripting). A
+whitespace-only value counts as set but is reported as weak, because it is shorter than 16 bytes.
+The 16-byte threshold is measured in UTF-8 bytes in both the worker and `doctor`.
+
+The scan workers inherit the variable from the process that starts the scan, so set it in the same
+environment as `reconnexus scan`. `doctor` can only inspect its own environment; if a worker is
+launched with a different environment, trust the stage-09 diagnostic and stage-11 note, which
+reflect what the worker actually used.
+
+**Store it securely.** Treat it like a credential: keep it in `.env` (never committed), your OS
+keychain or a secret manager, restrict file permissions (`chmod 600 .env`), and do not pass it on a
+command line (shell history). ReconNexus never logs, reports or persists the key or anything derived
+from it other than the truncated fingerprints.
+
+**When it is absent or empty.**
+
+- Secret **detection is unaffected**: the same rules run and the same redacted findings are stored.
+- Findings have an empty fingerprint and `hmacKeyed=false`, so **fingerprint correlation is
+  disabled**: no `shares_secret_fingerprint` edges are produced.
+- This is reported, not silent:
+  - `reconnexus doctor` shows a `WARN` (it does not change the exit code);
+  - the stage-09 provider diagnostic says `secret-fingerprint correlation disabled`;
+  - stage 11's coverage notes and `details.secretFingerprintCorrelation` record
+    `DISABLED_NO_HMAC_KEY` (or `PARTIAL_UNKEYED` when only some artifacts were scanned with a key),
+    and the report's stage row shows the same note. The stage itself still succeeds.
+- A key shorter than 16 bytes is accepted but flagged as weak by `doctor` and the stage-09
+  diagnostic.
+
+**Changing or rotating the key.** Fingerprints made with different keys are not comparable.
+After a change, findings from earlier scans no longer correlate with new ones (and existing stored
+fingerprints are not recomputed); correlation within a single scan keeps working as long as the key
+is stable during that scan. Keep one key per project for as long as you want cross-scan
+correlation, and treat a rotation as a deliberate break.

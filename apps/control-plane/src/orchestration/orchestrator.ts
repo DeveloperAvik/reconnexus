@@ -534,6 +534,11 @@ export class ScanOrchestrator {
       return { status: JobStatus.SKIPPED, providers: [], reason: "no records" };
     }
 
+    const fingerprint = fingerprintCorrelationStatus(findings, keyed);
+    if (fingerprint.note) {
+      this.deps.logger.warn("secret-fingerprint correlation is disabled", { scanId: scan.id, findings: findings.length });
+    }
+
     let groups = 0;
     let edges = 0;
     let corroborated = 0;
@@ -633,8 +638,8 @@ export class ScanOrchestrator {
         status: truncated ? "PARTIAL" : "COLLECTED",
         expected: findings.length + corroboration.length,
         collected: groups + corroborated,
-        notes: `secretGroups=${groups} edges=${edges} corroborated=${corroborated}${truncated ? " (truncated)" : ""}`,
-        details: { secretGroups: groups, edges, corroborated, coverageGaps: gaps, ...this.stageTiming(job.stage) },
+        notes: `secretGroups=${groups} edges=${edges} corroborated=${corroborated}${truncated ? " (truncated)" : ""}${fingerprint.note ? ` ${fingerprint.note}` : ""}`,
+        details: { secretGroups: groups, edges, corroborated, coverageGaps: gaps, secretFingerprintCorrelation: fingerprint.state, ...this.stageTiming(job.stage) },
       });
     });
 
@@ -1274,6 +1279,32 @@ export function shouldRetryStage(providers: ReadonlyArray<{ outcome: string }>):
 }
 
 const NON_RETRYABLE_SETTLED: ReadonlySet<string> = new Set([JobStatus.SOURCE_UNAVAILABLE, JobStatus.SKIPPED, JobStatus.BLOCKED]);
+
+export type FingerprintCorrelationState = "NO_SECRET_FINDINGS" | "ENABLED" | "PARTIAL_UNKEYED" | "DISABLED_NO_HMAC_KEY";
+
+/**
+ * Whether secret-fingerprint correlation could run for a scan's findings. A finding correlates only
+ * with a non-empty fingerprint produced under a configured HMAC key. Detection itself is unaffected:
+ * the note says correlation is disabled, never that detection failed. Contains no key material.
+ */
+export function fingerprintCorrelationStatus(
+  findings: ReadonlyArray<{ artifact: string; fingerprint: string }>,
+  keyedByArtifact: ReadonlyMap<string, boolean>,
+): { state: FingerprintCorrelationState; note: string } {
+  if (findings.length === 0) return { state: "NO_SECRET_FINDINGS", note: "" };
+  const usable = findings.filter((f) => f.fingerprint !== "" && keyedByArtifact.get(f.artifact) === true).length;
+  if (usable === findings.length) return { state: "ENABLED", note: "" };
+  if (usable === 0) {
+    return {
+      state: "DISABLED_NO_HMAC_KEY",
+      note: "secretFingerprintCorrelation=DISABLED (RECONNEXUS_HMAC_KEY was not set when secrets were scanned; secret detection is unaffected, findings are not correlated)",
+    };
+  }
+  return {
+    state: "PARTIAL_UNKEYED",
+    note: `secretFingerprintCorrelation=PARTIAL (${findings.length - usable} of ${findings.length} findings have no keyed fingerprint and were not correlated; RECONNEXUS_HMAC_KEY was missing for some artifacts, e.g. set partway through or absent from some workers)`,
+  };
+}
 
 export function aggregate(outcomes: string[]): string {
   if (outcomes.length === 0) return JobStatus.SKIPPED;

@@ -103,7 +103,12 @@ func (builtinSecretScan) Run(ctx context.Context, pc ProviderContext) (ProviderR
 	if maxBytes <= 0 {
 		maxBytes = 4 * 1024 * 1024
 	}
-	key := []byte(os.Getenv("RECONNEXUS_HMAC_KEY"))
+	key := []byte(os.Getenv(hmacKeyEnv))
+	// Secret detection never depends on the key; only fingerprints (and therefore cross-artifact
+	// correlation) do. Say so explicitly so an operator does not read this as a detection failure.
+	if d := hmacKeyDiagnostic(key); d != "" {
+		res.Diagnostics = append(res.Diagnostics, d)
+	}
 	suppressed := suppressedRules()
 	transport, err := pc.buildTransport(job)
 	if err != nil {
@@ -187,6 +192,25 @@ func scanArtifact(ctx context.Context, client *http.Client, limiter *rateLimiter
 	out := artifactRecord(canon, host, status, len(findings), len(body), len(key) > 0, "")
 	out = append(out, findings...)
 	return out, true
+}
+
+// hmacKeyEnv names the environment variable holding the fingerprint HMAC key.
+const hmacKeyEnv = "RECONNEXUS_HMAC_KEY"
+
+// hmacKeyMinBytes is the shortest key we consider adequate for HMAC-SHA256 fingerprints.
+const hmacKeyMinBytes = 16
+
+// hmacKeyDiagnostic describes the fingerprint-correlation state implied by the configured key. It
+// returns "" when a key of adequate length is configured. The message never includes the key, any
+// part of it, or anything derived from it (only its absence or its length class).
+func hmacKeyDiagnostic(key []byte) string {
+	switch {
+	case len(key) == 0:
+		return "secret-fingerprint correlation disabled: " + hmacKeyEnv + " is not set or empty; secret detection is unaffected, but findings carry no fingerprint and cannot be correlated across artifacts or scans (see docs/operations/configuration.md)"
+	case len(key) < hmacKeyMinBytes:
+		return "secret-fingerprint key is weak: " + hmacKeyEnv + " is shorter than 16 bytes; fingerprint correlation is enabled but use a random 32-byte key (see docs/operations/configuration.md)"
+	}
+	return ""
 }
 
 func artifactRecord(url, host, status string, findings, rawBytes int, hmacKeyed bool, errMsg string) []Record {

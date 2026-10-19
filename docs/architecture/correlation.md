@@ -19,6 +19,9 @@ The asset graph is built inline during ingestion (Stages 01–10): `resolves_to`
    - Empty fingerprints never correlate (they are not evidence of equality).
    - Unkeyed fingerprints never correlate (provenance is not comparable).
    - Fingerprints from different `ruleId`s never correlate.
+   - When no finding can correlate because no key was configured, stage 11 records
+     `secretFingerprintCorrelation=DISABLED_NO_HMAC_KEY` (or `PARTIAL_UNKEYED`) in its coverage
+     notes/details and the report; the stage still succeeds.
    - Fingerprints produced with different HMAC keys are not comparable; the stage relies on HMAC
      (not a plain hash) and on `RECONNEXUS_HMAC_KEY` being stable.
 

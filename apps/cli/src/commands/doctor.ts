@@ -4,6 +4,7 @@ import { ExitCode } from "@reconnexus/contracts";
 import {
   checkAllProviders,
   checkDatabase,
+  checkHmacKey,
   checkRedis,
   checkTool,
 } from "@reconnexus/control-plane";
@@ -15,6 +16,7 @@ interface DoctorReport {
   dependencies: unknown[];
   providers: unknown[];
   paths: unknown;
+  configuration: unknown[];
   ok: boolean;
 }
 
@@ -37,6 +39,9 @@ export async function doctorCommand(ctx: Context): Promise<CommandResult<DoctorR
     artifactsWritable: checkWritable(config.artifacts.root),
   };
 
+  const hmac = checkHmacKey();
+  const configuration = [hmac];
+
   const criticalOk =
     postgres.ok &&
     runtime.every((r) => (r as { ok: boolean }).ok) &&
@@ -48,6 +53,7 @@ export async function doctorCommand(ctx: Context): Promise<CommandResult<DoctorR
     dependencies: [postgres, redis],
     providers,
     paths,
+    configuration,
     ok: criticalOk,
   };
 
@@ -56,7 +62,10 @@ export async function doctorCommand(ctx: Context): Promise<CommandResult<DoctorR
   return result({
     exitCode,
     data: report,
-    warnings: providersOk ? [] : ["no external providers are healthy; recon stages that require them cannot run"],
+    warnings: [
+      ...(providersOk ? [] : ["no external providers are healthy; recon stages that require them cannot run"]),
+      ...(hmac.state === "CONFIGURED" ? [] : [`${hmac.name}: ${hmac.message}`]),
+    ],
     render: () => {
       const lines: string[] = ["ReconNexus doctor", ""];
       lines.push("Runtime");
@@ -75,6 +84,8 @@ export async function doctorCommand(ctx: Context): Promise<CommandResult<DoctorR
       for (const p of providers) {
         lines.push(`  ${p.status === "OK" ? "OK  " : p.status === "MISSING" ? "MISS" : "FAIL"} ${p.name}${p.version ? ` ${p.version}` : ""} — ${p.message}`);
       }
+      lines.push("", "Configuration");
+      lines.push(`  ${hmac.state === "CONFIGURED" ? "OK  " : "WARN"} ${hmac.name} — ${hmac.message}`);
       lines.push("", exitCode === ExitCode.SUCCESS ? "doctor: healthy" : "doctor: problems detected");
       return lines.join("\n");
     },
