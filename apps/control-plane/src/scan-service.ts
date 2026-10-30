@@ -49,6 +49,10 @@ const OPT_IN_STAGES: Record<string, string> = {
   [StageId.CONTENT_DISCOVERY]: "CONTENT_DISCOVERY",
   [StageId.CLOUD_STORAGE]: "CLOUD_STORAGE_CHECK",
   [StageId.CORS_REDIRECT]: "CORS_REDIRECT_CHECK",
+  [StageId.GRAPHQL_INTEL]: "GRAPHQL_INTROSPECTION",
+  [StageId.PARAMETER_DISCOVERY]: "PARAMETER_DISCOVERY",
+  [StageId.GITHUB_LEAKS]: "GITHUB_LEAK_SEARCH",
+  [StageId.WAYBACK_DIFF]: "WAYBACK_DIFF",
 };
 
 export function plannedStagesFor(capabilities: readonly string[], profile?: ScanProfile | null): string[] {

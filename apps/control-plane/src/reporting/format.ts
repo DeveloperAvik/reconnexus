@@ -1,6 +1,7 @@
 import type { Report, ReportFormatValue } from "@reconnexus/contracts";
 import { renderReportHtml } from "./html.js";
 import { normalizeReport } from "./report.js";
+import { renderReportSarif } from "./sarif.js";
 
 /**
  * Every output format is rendered from the one canonical report model; no format re-queries the
@@ -197,6 +198,8 @@ export function formatReport(report: Report, format: string): string {
       return formatCsv(report);
     case "html":
       return renderReportHtml(report);
+    case "sarif":
+      return renderReportSarif(report);
     case "human":
     default:
       return formatHuman(report);

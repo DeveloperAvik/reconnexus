@@ -88,6 +88,11 @@ func init() {
 	register(builtinCloudStorage{})
 	register(builtinCorsRedirect{})
 	register(builtinEmailSecurity{})
+	register(builtinGraphQL{})
+	register(builtinParamDiscovery{})
+	register(builtinCTLogs{})
+	register(builtinGithubLeaks{})
+	register(builtinWaybackDiff{})
 }
 
 // Run executes a discovery job and returns a truthful result. An error is returned only
@@ -354,6 +359,58 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no content discovery performed")
+			return finalizeResult(base), nil
+		}
+	case "GITHUB_LEAK_SEARCH", "WAYBACK_DIFF":
+		if job.Inputs.RootDomain == "" {
+			base.Status = StatusFailed
+			base.Coverage.Attempted = 1
+			base.Coverage.Failed = 1
+			base.Diagnostics = append(base.Diagnostics, "rootDomain is required")
+			return finalizeResult(base), nil
+		}
+		d := engine.Check(scope.Request{Kind: "DOMAIN", Value: job.Inputs.RootDomain, Capability: requiredCapOr(requiredCap, "PASSIVE")})
+		if !d.Allowed {
+			base.Status = StatusBlocked
+			base.Coverage.Attempted = 1
+			base.Coverage.Skipped = 1
+			base.Diagnostics = append(base.Diagnostics, "root domain is not authorized: "+d.Reason)
+			return finalizeResult(base), nil
+		}
+	case "GRAPHQL":
+		urls := make([]string, 0, len(job.Inputs.URLs))
+		for _, u := range job.Inputs.URLs {
+			d := engine.Check(scope.Request{Kind: "URL", Value: u, Capability: requiredCapOr(requiredCap, "GRAPHQL_INTROSPECTION")})
+			if d.Allowed {
+				urls = append(urls, u)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.URLs = urls
+		if len(urls) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all candidates were out of scope; no GraphQL checks performed")
+			return finalizeResult(base), nil
+		}
+	case "PARAMETER_DISCOVERY":
+		urls := make([]string, 0, len(job.Inputs.URLs))
+		for _, u := range job.Inputs.URLs {
+			d := engine.Check(scope.Request{Kind: "URL", Value: u, Capability: requiredCapOr(requiredCap, "PARAMETER_DISCOVERY")})
+			if d.Allowed {
+				urls = append(urls, u)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.URLs = urls
+		if len(urls) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all candidates were out of scope; no parameter discovery performed")
 			return finalizeResult(base), nil
 		}
 	case "EMAIL_SECURITY":
@@ -628,6 +685,12 @@ func unitCount(job Job) int {
 		return len(job.Inputs.URLs) + len(job.Inputs.RedirectCandidates)
 	case "EMAIL_SECURITY":
 		return len(job.Inputs.Names)
+	case "GRAPHQL":
+		return len(job.Inputs.URLs)
+	case "PARAMETER_DISCOVERY":
+		return len(job.Inputs.URLs)
+	case "GITHUB_LEAK_SEARCH", "WAYBACK_DIFF":
+		return 1
 	}
 	return 1
 }

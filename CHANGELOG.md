@@ -8,6 +8,59 @@ planned functionality; entries only describe what is actually implemented and te
 
 ### Added
 
+- **SARIF export (`report --format sarif`):** a SARIF 2.1.0 exporter for the canonical report
+  model, alongside the existing human/json/jsonl/csv/html formats, so findings can flow into
+  tools that already consume SARIF (GitHub code scanning, most CI security dashboards) without a
+  bespoke importer. One SARIF result per finding (`ruleId` = category, `level` derived from
+  severity, `properties` carrying confidence/validation/remediation/references), one rule per
+  distinct category, and a stable `partialFingerprints` id per finding. Like every other format,
+  it is a pure function over the already-redacted report model — no new data source, no new
+  query. See `docs/architecture/sarif-export.md`.
+- **CT log pivots, GitHub leak search and Wayback diffing:** three new passive research sources,
+  none of which ever contact the authorized target — all three query a third-party public
+  service instead (crt.sh, GitHub, web.archive.org), the same basis the existing RDAP provider
+  already runs on, so none of them go through the scope-checked HTTP client.
+  - **CT logs (`builtin-ctlogs`):** a new provider inside the existing stage
+    `02-subdomain-discovery`, alongside subfinder/assetfinder/amass. Queries crt.sh for the root
+    domain and extracts subdomain candidates from certificate SANs, keeping only names that are
+    the queried domain or a subdomain of it. Runs under the existing `PASSIVE` capability (no new
+    capability needed); available but not in the default provider list, like `amass` — opt in
+    with `--providers subfinder,assetfinder,builtin-ctlogs`.
+  - **GitHub leak search (stage `23-github-leaks`, `builtin-github-leaks` provider):** searches
+    GitHub's public code search API for mentions of the root domain. Requires
+    `RECONNEXUS_GITHUB_TOKEN`; reports `SOURCE_UNAVAILABLE` without one rather than failing. Every
+    hit's snippet is also run through the existing secret-detection engine, producing its own
+    `SECRET_CANDIDATE` record (and flowing through the existing secret-finding report pipeline)
+    when it matches a secret pattern — no separate finding logic was needed for that part. A
+    plain code mention alone stays inventory. New `github` command and `--github-providers`.
+  - **Wayback diffing (stage `24-wayback-diff`, `builtin-wayback-diff` provider):** compares the
+    Wayback Machine's CDX index for the root domain against every URL this scan already observed,
+    surfacing archived-but-unlinked paths (an old admin panel, a retired API version) that
+    nothing in the current crawl reached. Never a live check — a diffed path is never requested
+    again, so confidence is capped at 0.5, and the result stays inventory rather than becoming an
+    automatic finding. New `wayback` command and `--wayback-providers`.
+
+  GitHub leak search and Wayback diffing are opt-in via new `GITHUB_LEAK_SEARCH` and
+  `WAYBACK_DIFF` capabilities (migration `0011`), excluded from the `quick`/`stealth` profiles.
+  See `docs/architecture/ct-logs.md`, `docs/architecture/github-leaks.md` and
+  `docs/architecture/wayback-diff.md`.
+- **GraphQL intelligence (stage `21-graphql-intelligence`, `builtin-graphql` provider) and
+  parameter discovery (stage `22-parameter-discovery`, `builtin-param-discovery` provider):**
+  GraphQL intelligence sends a read-only introspection query (never a mutation) to candidates
+  derived from URLs already classified `GRAPHQL` during crawling plus a fixed list of well-known
+  GraphQL paths on observed origins; `INTROSPECTION_ENABLED` (schema actually disclosed, with
+  root type names and field counts) becomes a `MEDIUM` finding, `INTROSPECTION_DISABLED` is a
+  good outcome, `NOT_GRAPHQL` stays inventory. Parameter discovery injects a short, fixed
+  wordlist of common parameter names (each with a unique random probe value) into already-
+  crawled URLs that carry a query string, first calibrating against two unmodified baseline
+  requests so a page with naturally-varying content (timestamps, CSRF tokens) is never
+  misread as having a discovered parameter; only a positive signal (reflected probe value, a
+  status-code change, or a length change beyond the calibrated margin) is ever recorded — same
+  as a closed port is never recorded by the port scanner — and becomes a `LOW` finding. Both are
+  opt-in via new `GRAPHQL_INTROSPECTION` and `PARAMETER_DISCOVERY` capabilities (migration
+  `0010`), excluded from the `quick`/`stealth` profiles. New `graphql` and `discovered-params`
+  commands, `--graphql-providers` and `--param-discovery-providers`. See
+  `docs/architecture/graphql-intelligence.md` and `docs/architecture/parameter-discovery.md`.
 - **Email security posture (stage `20-email-security`, `builtin-email-security` provider):**
   checks the scan's root domain for SPF, DMARC, and a fixed list of common DKIM selectors, via
   read-only DNS TXT/MX lookups — never a connection to a mail server. Runs under the baseline

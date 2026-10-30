@@ -21,6 +21,10 @@ export const IMPLEMENTED_STAGES = new Set<string>([
   StageId.CLOUD_STORAGE,
   StageId.CORS_REDIRECT,
   StageId.EMAIL_SECURITY,
+  StageId.GRAPHQL_INTEL,
+  StageId.PARAMETER_DISCOVERY,
+  StageId.GITHUB_LEAKS,
+  StageId.WAYBACK_DIFF,
   StageId.REPORTING,
 ]);
 
@@ -42,6 +46,10 @@ export const DEFAULT_PROVIDERS: Record<DiscoveryJobKindValue, string[]> = {
   CLOUD_STORAGE: ["builtin-cloud-storage"],
   CORS_REDIRECT: ["builtin-cors-redirect"],
   EMAIL_SECURITY: ["builtin-email-security"],
+  GRAPHQL: ["builtin-graphql"],
+  PARAMETER_DISCOVERY: ["builtin-param-discovery"],
+  GITHUB_LEAK_SEARCH: ["builtin-github-leaks"],
+  WAYBACK_DIFF: ["builtin-wayback-diff"],
 };
 
 export const MAX_NAMES = 1000;
@@ -69,6 +77,15 @@ export const MAX_CONTENT_ORIGINS = 25;
 export const MAX_CLOUD_STORAGE_CANDIDATES = 25;
 /** Origins the CORS reflection probe may check in one scan. */
 export const MAX_CORS_TARGETS = 50;
+/** GraphQL candidates (well-known paths on observed origins, plus already-classified GraphQL URLs) checked in one scan. */
+export const MAX_GRAPHQL_CANDIDATES = 30;
+/** Candidate URLs the parameter-discovery probe may check in one scan. */
+export const MAX_PARAM_DISCOVERY_CANDIDATES = 15;
+/** Already-observed URLs sent as the comparison baseline for Wayback diffing. */
+export const MAX_WAYBACK_OBSERVED_URLS = 5000;
+
+/** Well-known paths probed on every observed origin, in addition to any URL already classified GRAPHQL. */
+export const GRAPHQL_WELL_KNOWN_PATHS = ["/graphql", "/api/graphql", "/graphql/console", "/v1/graphql", "/query", "/graphiql"];
 /** Open-redirect-shaped URLs the open-redirect probe may check in one scan. */
 export const MAX_REDIRECT_CANDIDATES = 50;
 

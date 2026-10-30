@@ -16,7 +16,7 @@ export const ReportStatus = z.enum([
 ]);
 export type ReportStatusValue = z.infer<typeof ReportStatus>;
 
-export const ReportFormat = z.enum(["human", "json", "jsonl", "csv", "html"]);
+export const ReportFormat = z.enum(["human", "json", "jsonl", "csv", "html", "sarif"]);
 export type ReportFormatValue = z.infer<typeof ReportFormat>;
 
 /**

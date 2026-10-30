@@ -39,6 +39,7 @@ var AllCapabilities = map[string]bool{
 	"PASSIVE": true, "DNS": true, "ACTIVE_HTTP": true, "CRAWL": true,
 	"JS_ANALYSIS": true, "API_DISCOVERY": true, "SECRET_SCAN": true,
 	"SECURITY_CHECKS": true, "ACTIVE_TEMPLATE_CHECK": true, "TAKEOVER_CHECK": true, "PORT_SCAN": true, "CONTENT_DISCOVERY": true, "CLOUD_STORAGE_CHECK": true, "CORS_REDIRECT_CHECK": true,
+	"GRAPHQL_INTROSPECTION": true, "PARAMETER_DISCOVERY": true, "GITHUB_LEAK_SEARCH": true, "WAYBACK_DIFF": true,
 	"INTERNAL_NETWORK": true,
 }
 

@@ -26,6 +26,10 @@ export const StageId = {
   CLOUD_STORAGE: "18-cloud-storage",
   CORS_REDIRECT: "19-cors-redirect",
   EMAIL_SECURITY: "20-email-security",
+  GRAPHQL_INTEL: "21-graphql-intelligence",
+  PARAMETER_DISCOVERY: "22-parameter-discovery",
+  GITHUB_LEAKS: "23-github-leaks",
+  WAYBACK_DIFF: "24-wayback-diff",
 } as const;
 export type StageIdValue = (typeof StageId)[keyof typeof StageId];
 
@@ -50,6 +54,10 @@ export const OrderedStages: StageIdValue[] = [
   StageId.CLOUD_STORAGE,
   StageId.CORS_REDIRECT,
   StageId.EMAIL_SECURITY,
+  StageId.GRAPHQL_INTEL,
+  StageId.PARAMETER_DISCOVERY,
+  StageId.GITHUB_LEAKS,
+  StageId.WAYBACK_DIFF,
   StageId.REPORTING,
 ];
 

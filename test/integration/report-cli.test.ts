@@ -74,6 +74,11 @@ describe.skipIf(!available)("report CLI", () => {
       const csv = await reportCommand(ctx, scanId, { format: "csv" });
       expect(csv.render!().toString().split("\n")[0]).toBe("section,type,key,status,detail");
 
+      const sarif = await reportCommand(ctx, scanId, { format: "sarif" });
+      const sarifDoc = JSON.parse(sarif.render!().toString());
+      expect(sarifDoc.version).toBe("2.1.0");
+      expect(sarifDoc.runs[0].tool.driver.name).toBe("ReconNexus");
+
       const env = JSON.parse(JSON.stringify(makeEnvelope("report", json)));
       expect(env.ok).toBe(true);
       expect(env.exitCode).toBe(0);

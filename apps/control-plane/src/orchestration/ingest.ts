@@ -238,7 +238,17 @@ export function reliabilityFor(source: string, score?: number): SourceReliabilit
     case "builtin-cors-redirect":
     case "email-security":
     case "builtin-email-security":
+    case "graphql":
+    case "builtin-graphql":
+    case "param-discovery":
+    case "builtin-param-discovery":
       return "HIGH";
+    case "github":
+    case "builtin-github-leaks":
+      return "MEDIUM";
+    case "wayback":
+    case "builtin-wayback-diff":
+      return "LOW";
     default:
       return "LOW";
   }
@@ -523,6 +533,74 @@ export async function ingestDiscoveryResult(
         confidence: rec.confidence,
         value: rec.value,
         detail: rec.detail,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      return;
+    }
+    if (rec.type === "GRAPHQL_SCHEMA") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("graphql"), "graphql", {
+        host: rec.host,
+        url: rec.url,
+        status: rec.status,
+        confidence: rec.confidence,
+        httpStatus: rec.httpStatus,
+        queryType: rec.queryType,
+        mutationType: rec.mutationType,
+        subscriptionType: rec.subscriptionType,
+        typeCount: rec.typeCount,
+        queryFieldCount: rec.queryFieldCount,
+        mutationFieldCount: rec.mutationFieldCount,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      return;
+    }
+    if (rec.type === "PARAMETER_DISCOVERY") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("param-discovery"), "param-discovery", {
+        host: rec.host,
+        url: rec.url,
+        parameter: rec.parameter,
+        confidence: rec.confidence,
+        httpStatus: rec.httpStatus,
+        baselineStatus: rec.baselineStatus,
+        baselineLength: rec.baselineLength,
+        testLength: rec.testLength,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      return;
+    }
+    if (rec.type === "GITHUB_CODE_MATCH") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("github"), "github", {
+        host: rec.host,
+        url: rec.url,
+        query: rec.query,
+        repository: rec.repository,
+        path: rec.path,
+        sha: rec.sha,
+        score: rec.score,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      return;
+    }
+    if (rec.type === "WAYBACK_DIFF") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("wayback"), "wayback", {
+        host: rec.host,
+        url: rec.url,
+        firstSeen: rec.firstSeen,
+        lastStatus: rec.lastStatus,
+        mimeType: rec.mimeType,
+        confidence: rec.confidence,
         evidence: rec.evidence,
         evidenceType: rec.evidenceType,
         provider: rec.provider,

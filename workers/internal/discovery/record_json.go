@@ -59,6 +59,18 @@ func (r *Record) flatPayloads() []any {
 	if r.EmailSecurity != nil {
 		out = append(out, r.EmailSecurity)
 	}
+	if r.GraphQL != nil {
+		out = append(out, r.GraphQL)
+	}
+	if r.ParamDiscovery != nil {
+		out = append(out, r.ParamDiscovery)
+	}
+	if r.GithubMatch != nil {
+		out = append(out, r.GithubMatch)
+	}
+	if r.WaybackDiff != nil {
+		out = append(out, r.WaybackDiff)
+	}
 	return out
 }
 
@@ -87,6 +99,10 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	base.Cors = nil
 	base.OpenRedirect = nil
 	base.EmailSecurity = nil
+	base.GraphQL = nil
+	base.ParamDiscovery = nil
+	base.GithubMatch = nil
+	base.WaybackDiff = nil
 
 	baseBytes, err := json.Marshal(recordEnvelope(base))
 	if err != nil {

@@ -31,6 +31,14 @@ export const Capability = {
   CLOUD_STORAGE_CHECK: "CLOUD_STORAGE_CHECK",
   /** Reflective-CORS and open-redirect probing of in-scope origins/URLs already observed. */
   CORS_REDIRECT_CHECK: "CORS_REDIRECT_CHECK",
+  /** Sending a read-only GraphQL introspection query to a candidate endpoint already observed. */
+  GRAPHQL_INTROSPECTION: "GRAPHQL_INTROSPECTION",
+  /** Injecting a fixed wordlist of common parameter names into an already-observed URL. */
+  PARAMETER_DISCOVERY: "PARAMETER_DISCOVERY",
+  /** Searching GitHub's public code search API for mentions of the target domain. */
+  GITHUB_LEAK_SEARCH: "GITHUB_LEAK_SEARCH",
+  /** Comparing the Wayback Machine's archive of the target domain against this scan's own crawl. */
+  WAYBACK_DIFF: "WAYBACK_DIFF",
   /**
    * Permission to reach private/loopback/link-local/metadata address space.
    * This is a distinct, high-risk capability and is never implied by others.
@@ -55,6 +63,8 @@ export const ActiveCapabilities: ReadonlySet<CapabilityValue> = new Set([
   Capability.CONTENT_DISCOVERY,
   Capability.CLOUD_STORAGE_CHECK,
   Capability.CORS_REDIRECT_CHECK,
+  Capability.GRAPHQL_INTROSPECTION,
+  Capability.PARAMETER_DISCOVERY,
   Capability.DNS,
 ]);
 

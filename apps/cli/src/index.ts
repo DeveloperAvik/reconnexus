@@ -31,6 +31,10 @@ import { adminCommand, cpanelCommand } from "./commands/finder.js";
 import { bucketsCommand } from "./commands/buckets.js";
 import { corsCommand } from "./commands/cors.js";
 import { emailCommand } from "./commands/email.js";
+import { githubCommand } from "./commands/github.js";
+import { graphqlCommand } from "./commands/graphql.js";
+import { paramsDiscoveredCommand } from "./commands/params.js";
+import { waybackCommand } from "./commands/wayback.js";
 import { redirectsCommand } from "./commands/redirects.js";
 import { contentCommand } from "./commands/content.js";
 import { portsCommand } from "./commands/ports.js";
@@ -244,6 +248,10 @@ function buildProgram(): Command {
       .option("--content-providers <list>", "comma-separated content-discovery providers (stage runs only if the policy grants CONTENT_DISCOVERY)")
       .option("--cors-redirect-providers <list>", "comma-separated CORS/open-redirect providers (stage runs only if the policy grants CORS_REDIRECT_CHECK)")
       .option("--email-providers <list>", "comma-separated email-security providers")
+      .option("--graphql-providers <list>", "comma-separated GraphQL providers (stage runs only if the policy grants GRAPHQL_INTROSPECTION)")
+      .option("--param-discovery-providers <list>", "comma-separated parameter-discovery providers (stage runs only if the policy grants PARAMETER_DISCOVERY)")
+      .option("--github-providers <list>", "comma-separated GitHub leak-search providers (stage runs only if the policy grants GITHUB_LEAK_SEARCH; requires RECONNEXUS_GITHUB_TOKEN)")
+      .option("--wayback-providers <list>", "comma-separated Wayback-diff providers (stage runs only if the policy grants WAYBACK_DIFF)")
       .option("--ports <spec>", "TCP ports to scan, e.g. 80,443,8000-8100 (default: a built-in list of common service ports)")
       .option("--max-attempts <n>", "maximum attempts per stage", (v: string) => Number(v));
 
@@ -270,6 +278,10 @@ function buildProgram(): Command {
         ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
         ...(opts.corsRedirectProviders ? { corsRedirectProviders: opts.corsRedirectProviders } : {}),
         ...(opts.emailProviders ? { emailProviders: opts.emailProviders } : {}),
+        ...(opts.graphqlProviders ? { graphqlProviders: opts.graphqlProviders } : {}),
+        ...(opts.paramDiscoveryProviders ? { paramDiscoveryProviders: opts.paramDiscoveryProviders } : {}),
+        ...(opts.githubProviders ? { githubProviders: opts.githubProviders } : {}),
+        ...(opts.waybackProviders ? { waybackProviders: opts.waybackProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -296,6 +308,10 @@ function buildProgram(): Command {
         ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
         ...(opts.corsRedirectProviders ? { corsRedirectProviders: opts.corsRedirectProviders } : {}),
         ...(opts.emailProviders ? { emailProviders: opts.emailProviders } : {}),
+        ...(opts.graphqlProviders ? { graphqlProviders: opts.graphqlProviders } : {}),
+        ...(opts.paramDiscoveryProviders ? { paramDiscoveryProviders: opts.paramDiscoveryProviders } : {}),
+        ...(opts.githubProviders ? { githubProviders: opts.githubProviders } : {}),
+        ...(opts.waybackProviders ? { waybackProviders: opts.waybackProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -665,6 +681,70 @@ function buildProgram(): Command {
       ),
     );
 
+  // GraphQL introspection probes (graphql-intelligence stage; requires GRAPHQL_INTROSPECTION)
+  program
+    .command("graphql <scanId>")
+    .description("list GraphQL introspection probes found by the graphql-intelligence stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--status <status>", "filter by status (INTROSPECTION_ENABLED, INTROSPECTION_DISABLED, NOT_GRAPHQL)")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("graphql", program, (ctx) =>
+        graphqlCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Undocumented parameters (parameter-discovery stage; requires PARAMETER_DISCOVERY)
+  program
+    .command("discovered-params <scanId>")
+    .description("list undocumented parameters found by the parameter-discovery stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--parameter <name>", "filter by parameter name")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("discovered-params", program, (ctx) =>
+        paramsDiscoveredCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.parameter ? { parameter: opts.parameter } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Public GitHub code mentions (github-leaks stage; requires GITHUB_LEAK_SEARCH + RECONNEXUS_GITHUB_TOKEN)
+  program
+    .command("github <scanId>")
+    .description("list public GitHub code matches found by the github-leaks stage")
+    .option("--repository <substr>", "filter by repository substring")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("github", program, (ctx) =>
+        githubCommand(ctx, id, {
+          ...(opts.repository ? { repository: opts.repository } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Archived-but-unobserved paths (wayback-diff stage; requires WAYBACK_DIFF)
+  program
+    .command("wayback <scanId>")
+    .description("list archived-but-unobserved paths found by the wayback-diff stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("wayback", program, (ctx) =>
+        waybackCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
   // Per-host risk ranking
   program
     .command("risk <scanId>")
@@ -706,8 +786,8 @@ function buildProgram(): Command {
   // Stage 12 reporting
   program
     .command("report <scanId>")
-    .description("generate a redacted, evidence-backed report (human/json/jsonl/csv/html)")
-    .addOption(new Option("--format <format>", "output format").choices(["human", "json", "jsonl", "csv", "html"]))
+    .description("generate a redacted, evidence-backed report (human/json/jsonl/csv/html/sarif)")
+    .addOption(new Option("--format <format>", "output format").choices(["human", "json", "jsonl", "csv", "html", "sarif"]))
     .option("--out <path>", "write the report to a file instead of stdout")
     .option("--max-rows <n>", "maximum rows per inventory section (totals stay exact)", (v: string) => Number(v))
     .action((id: string, opts) =>

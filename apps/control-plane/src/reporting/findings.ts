@@ -418,6 +418,92 @@ export function emailSecurityFindings(rows: readonly EmailSecurityFindingInput[]
   return findings;
 }
 
+export interface GraphQLFindingInput {
+  url: string;
+  host: string;
+  status: string;
+  confidence: number;
+  httpStatus: number | null;
+  queryType: string;
+  mutationType: string;
+  queryFieldCount: number;
+  mutationFieldCount: number;
+  evidence: string;
+}
+
+/**
+ * Only INTROSPECTION_ENABLED becomes a finding: the schema was actually disclosed, not merely
+ * guessed. INTROSPECTION_DISABLED is a good outcome, and NOT_GRAPHQL stays inventory.
+ */
+export function graphQLFindings(rows: readonly GraphQLFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    if (r.status !== "INTROSPECTION_ENABLED") continue;
+    const id = findingId(["graphql", r.url]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const opCounts = [r.queryFieldCount ? `${r.queryFieldCount} query field(s)` : "", r.mutationFieldCount ? `${r.mutationFieldCount} mutation field(s)` : ""].filter(Boolean).join(", ");
+    findings.push({
+      id,
+      title: `GraphQL introspection enabled at ${r.url}`,
+      category: "GRAPHQL_INTROSPECTION_ENABLED",
+      severity: "MEDIUM",
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "21-graphql-intelligence",
+      sourceKind: "graphql",
+      evidence: `HTTP ${r.httpStatus}; ${r.evidence}${opCounts ? ` (${opCounts})` : ""}`,
+      evidenceRefs: [r.url],
+      remediation: "Disable introspection in production (most GraphQL servers offer a flag for this), or restrict it to authenticated administrators. A disclosed schema makes the full query/mutation surface, including undocumented fields, trivial to enumerate.",
+      references: ["https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/12-API_Testing/01-Testing_GraphQL"],
+    });
+  }
+  return findings;
+}
+
+export interface ParamDiscoveryFindingInput {
+  url: string;
+  host: string;
+  parameter: string;
+  confidence: number;
+  httpStatus: number | null;
+  evidence: string;
+  evidenceType: string;
+}
+
+/**
+ * Every row here is already a positive discovery (the worker never emits a record for a
+ * parameter that showed no difference), so every row becomes a finding. Confidence carries the
+ * strength of the signal (reflected value > status-code change > length delta).
+ */
+export function paramDiscoveryFindings(rows: readonly ParamDiscoveryFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    const id = findingId(["param-discovery", r.url, r.parameter]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    findings.push({
+      id,
+      title: `Undocumented parameter "${r.parameter}" discovered at ${r.url}`,
+      category: "UNDOCUMENTED_PARAMETER",
+      severity: "LOW",
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "22-parameter-discovery",
+      sourceKind: "param-discovery",
+      evidence: `HTTP ${r.httpStatus}; ${r.evidence}`,
+      evidenceRefs: [r.url, `param:${r.parameter}`],
+      remediation: `Confirm manually whether "${r.parameter}" is an intentional, documented parameter. If not, remove the behavior it triggers or make sure it goes through the same validation and authorization as documented parameters.`,
+      references: [],
+    });
+  }
+  return findings;
+}
+
 export interface ContentFindingInput {
   url: string;
   host: string;
@@ -589,7 +675,7 @@ export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportT
  * of the persisted rows drifting apart.
  */
 export async function loadScanFindings(repo: Repository, scanId: string): Promise<ReportFinding[]> {
-  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows, corsRows, redirectRows, emailRows] = await Promise.all([
+  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows, corsRows, redirectRows, emailRows, graphqlRows, paramRows] = await Promise.all([
     repo.listSecretFindings(scanId),
     repo.listTakeoverCandidates(scanId),
     repo.listSecurityMetadata(scanId, 5000),
@@ -600,6 +686,8 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     repo.listCorsFindings(scanId),
     repo.listOpenRedirectFindings(scanId),
     repo.listEmailSecurityFindings(scanId),
+    repo.listGraphQLFindings(scanId),
+    repo.listParamDiscoveryFindings(scanId),
   ]);
 
   const secretFindings: ReportSecretFinding[] = secretRows
@@ -691,6 +779,16 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     return { host: r.host, category: d.category ?? "", status: d.status ?? "ABSENT", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, value: d.value ?? "", evidence: d.evidence ?? "" };
   });
 
+  const graphqlInputs: GraphQLFindingInput[] = graphqlRows.map((r) => {
+    const d = r.data as Partial<GraphQLFindingInput>;
+    return { url: r.url, host: d.host ?? "", status: d.status ?? "NOT_GRAPHQL", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, queryType: d.queryType ?? "", mutationType: d.mutationType ?? "", queryFieldCount: d.queryFieldCount ?? 0, mutationFieldCount: d.mutationFieldCount ?? 0, evidence: d.evidence ?? "" };
+  });
+
+  const paramInputs: ParamDiscoveryFindingInput[] = paramRows.map((r) => {
+    const d = r.data as Partial<ParamDiscoveryFindingInput>;
+    return { url: r.url, host: d.host ?? "", parameter: d.parameter ?? "", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, evidence: d.evidence ?? "", evidenceType: d.evidenceType ?? "" };
+  });
+
   return buildFindings(secretFindings, takeoverCandidates, [
     ...insecureCookieFindings(securityFindingInputs),
     ...templateFindings(templateInputs),
@@ -699,6 +797,8 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     ...corsFindings(corsInputs),
     ...openRedirectFindings(redirectInputs),
     ...emailSecurityFindings(emailInputs),
+    ...graphQLFindings(graphqlInputs),
+    ...paramDiscoveryFindings(paramInputs),
     ...exposedServiceFindings(portInputs),
   ]);
 }

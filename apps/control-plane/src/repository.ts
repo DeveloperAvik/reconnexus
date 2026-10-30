@@ -652,6 +652,54 @@ export class Repository {
     return res.rows as never;
   }
 
+  async listGraphQLFindings(scanId: string, limit = 20000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS url, o.data AS data
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'graphql'
+        ORDER BY (o.data->>'status'), a.value
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows as never;
+  }
+
+  async listParamDiscoveryFindings(scanId: string, limit = 20000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS url, o.data AS data
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'param-discovery'
+        ORDER BY a.value, (o.data->>'parameter')
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows as never;
+  }
+
+  async listGithubLeakFindings(scanId: string, limit = 20000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS url, o.data AS data
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'github'
+        ORDER BY (o.data->>'score') DESC, a.value
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows as never;
+  }
+
+  async listWaybackDiffFindings(scanId: string, limit = 20000): Promise<Array<{ url: string; data: Record<string, unknown> }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS url, o.data AS data
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'wayback'
+        ORDER BY a.value
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows as never;
+  }
+
   async listPortObservations(scanId: string): Promise<Array<{ data: Record<string, unknown> }>> {
     const res = await this.db.query(
       `SELECT o.data AS data

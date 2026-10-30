@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cloudStorageCandidateFor, cloudStorageFindings, contentFindings, corsFindings, emailSecurityFindings, exposedServiceFindings, openRedirectCandidateFor, openRedirectFindings, plannedStagesFor, templateFindings, type CloudStorageFindingInput, type ContentFindingInput, type CorsFindingInput, type EmailSecurityFindingInput, type OpenRedirectFindingInput, type PortFindingInput, type TemplateFindingInput } from "@reconnexus/control-plane";
+import { cloudStorageCandidateFor, cloudStorageFindings, contentFindings, corsFindings, emailSecurityFindings, exposedServiceFindings, graphQLFindings, openRedirectCandidateFor, openRedirectFindings, paramDiscoveryFindings, plannedStagesFor, templateFindings, type CloudStorageFindingInput, type ContentFindingInput, type CorsFindingInput, type EmailSecurityFindingInput, type GraphQLFindingInput, type OpenRedirectFindingInput, type ParamDiscoveryFindingInput, type PortFindingInput, type TemplateFindingInput } from "@reconnexus/control-plane";
 
 const port = (over: Partial<PortFindingInput>): PortFindingInput => ({ host: "a.example.com", ip: "93.184.216.34", port: 6379, protocol: "tcp", state: "OPEN", service: "redis", product: "Redis", version: "7.0", ...over });
 const tpl = (over: Partial<TemplateFindingInput>): TemplateFindingInput => ({
@@ -236,5 +236,70 @@ describe("email security findings", () => {
   it("is planned unconditionally, like other core DNS-based stages", () => {
     expect(plannedStagesFor(["DNS"])).toContain("20-email-security");
     expect(plannedStagesFor([])).toContain("20-email-security");
+  });
+});
+
+const graphql = (over: Partial<GraphQLFindingInput>): GraphQLFindingInput => ({
+  url: "https://app.example.com/graphql", host: "app.example.com", status: "INTROSPECTION_ENABLED", confidence: 0.95, httpStatus: 200,
+  queryType: "Query", mutationType: "Mutation", queryFieldCount: 12, mutationFieldCount: 5,
+  evidence: "introspection query returned a non-null __schema object", ...over,
+});
+
+describe("GraphQL findings", () => {
+  it("reports INTROSPECTION_ENABLED as a MEDIUM, SUSPECTED finding naming field counts", () => {
+    const f = graphQLFindings([graphql({})]);
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ severity: "MEDIUM", validation: "SUSPECTED", category: "GRAPHQL_INTROSPECTION_ENABLED", sourceStage: "21-graphql-intelligence", subject: "app.example.com" });
+    expect(f[0]!.evidence).toContain("12 query field(s)");
+  });
+
+  it("keeps INTROSPECTION_DISABLED and NOT_GRAPHQL as inventory, never a finding", () => {
+    expect(graphQLFindings([graphql({ status: "INTROSPECTION_DISABLED" }), graphql({ status: "NOT_GRAPHQL", url: "https://b.example.com/" })])).toHaveLength(0);
+  });
+
+  it("deduplicates by URL and has stable ids", () => {
+    expect(graphQLFindings([graphql({}), graphql({})])).toHaveLength(1);
+    expect(graphQLFindings([graphql({})])[0]!.id).toBe(graphQLFindings([graphql({})])[0]!.id);
+  });
+
+  it("is planned only when the policy grants GRAPHQL_INTROSPECTION", () => {
+    expect(plannedStagesFor(["ACTIVE_HTTP"])).not.toContain("21-graphql-intelligence");
+    expect(plannedStagesFor(["ACTIVE_HTTP", "GRAPHQL_INTROSPECTION"])).toContain("21-graphql-intelligence");
+  });
+});
+
+const param = (over: Partial<ParamDiscoveryFindingInput>): ParamDiscoveryFindingInput => ({
+  url: "https://app.example.com/search?q=1", host: "app.example.com", parameter: "debug", confidence: 0.85, httpStatus: 200,
+  evidence: "injected probe value for parameter \"debug\" was reflected in the response", evidenceType: "REFLECTED_VALUE", ...over,
+});
+
+describe("parameter discovery findings", () => {
+  it("reports every row as a LOW, SUSPECTED finding naming the parameter (the worker only emits positive discoveries)", () => {
+    const f = paramDiscoveryFindings([param({})]);
+    expect(f).toHaveLength(1);
+    expect(f[0]).toMatchObject({ severity: "LOW", validation: "SUSPECTED", category: "UNDOCUMENTED_PARAMETER", sourceStage: "22-parameter-discovery", subject: "app.example.com" });
+    expect(f[0]!.title).toContain("debug");
+  });
+
+  it("deduplicates by url+parameter and has stable ids", () => {
+    expect(paramDiscoveryFindings([param({}), param({})])).toHaveLength(1);
+    expect(paramDiscoveryFindings([param({})])[0]!.id).toBe(paramDiscoveryFindings([param({})])[0]!.id);
+  });
+
+  it("is planned only when the policy grants PARAMETER_DISCOVERY", () => {
+    expect(plannedStagesFor(["ACTIVE_HTTP"])).not.toContain("22-parameter-discovery");
+    expect(plannedStagesFor(["ACTIVE_HTTP", "PARAMETER_DISCOVERY"])).toContain("22-parameter-discovery");
+  });
+});
+
+describe("GitHub leaks and Wayback diff stage gating", () => {
+  it("GitHub leak search is planned only when the policy grants GITHUB_LEAK_SEARCH", () => {
+    expect(plannedStagesFor(["PASSIVE"])).not.toContain("23-github-leaks");
+    expect(plannedStagesFor(["PASSIVE", "GITHUB_LEAK_SEARCH"])).toContain("23-github-leaks");
+  });
+
+  it("Wayback diffing is planned only when the policy grants WAYBACK_DIFF", () => {
+    expect(plannedStagesFor(["PASSIVE"])).not.toContain("24-wayback-diff");
+    expect(plannedStagesFor(["PASSIVE", "WAYBACK_DIFF"])).toContain("24-wayback-diff");
   });
 });

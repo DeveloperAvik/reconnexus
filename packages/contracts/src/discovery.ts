@@ -20,6 +20,10 @@ export const DiscoveryJobKind = {
   CLOUD_STORAGE: "CLOUD_STORAGE",
   CORS_REDIRECT: "CORS_REDIRECT",
   EMAIL_SECURITY: "EMAIL_SECURITY",
+  GRAPHQL: "GRAPHQL",
+  PARAMETER_DISCOVERY: "PARAMETER_DISCOVERY",
+  GITHUB_LEAK_SEARCH: "GITHUB_LEAK_SEARCH",
+  WAYBACK_DIFF: "WAYBACK_DIFF",
 } as const;
 export type DiscoveryJobKindValue = (typeof DiscoveryJobKind)[keyof typeof DiscoveryJobKind];
 
@@ -35,7 +39,7 @@ export const DiscoveryJobSchema = z.object({
   projectId: z.string().uuid(),
   stage: z.string().min(1),
   jobKey: z.string().min(1),
-  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE", "CORS_REDIRECT", "EMAIL_SECURITY"]),
+  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE", "CORS_REDIRECT", "EMAIL_SECURITY", "GRAPHQL", "PARAMETER_DISCOVERY", "GITHUB_LEAK_SEARCH", "WAYBACK_DIFF"]),
   provider: z.string().min(1),
   /** The full policy is passed so the worker can enforce scope independently. */
   policy: ScopePolicySchema,
@@ -107,6 +111,12 @@ export const DiscoveryJobSchema = z.object({
   resolverAddress: z.string().optional(),
   /** RDAP base URL override (default https://rdap.org). */
   rdapBaseUrl: z.string().optional(),
+  /** crt.sh (Certificate Transparency) base URL override (default https://crt.sh). Test/operator-only. */
+  ctLogBaseUrl: z.string().optional(),
+  /** GitHub API base URL override (default https://api.github.com). Test/operator-only. */
+  githubApiBase: z.string().optional(),
+  /** Wayback Machine base URL override (default https://web.archive.org). Test/operator-only. */
+  waybackApiBase: z.string().optional(),
   /** Per-job timeout override in milliseconds. */
   timeoutMs: z.number().int().positive().optional(),
   /** Per-job output byte limit override. */
@@ -769,6 +779,101 @@ export const EmailSecurityRecordSchema = z.object({
 });
 export type EmailSecurityRecord = z.infer<typeof EmailSecurityRecordSchema>;
 
+/**
+ * `INTROSPECTION_ENABLED` means the introspection query returned a non-null `__schema` object,
+ * disclosing the root query/mutation/subscription type names and the number of top-level fields
+ * each exposes. `INTROSPECTION_DISABLED` is a good outcome, not a finding. `NOT_GRAPHQL` means
+ * the response did not look like a GraphQL endpoint at all.
+ */
+export const GraphQLStatus = z.enum(["INTROSPECTION_ENABLED", "INTROSPECTION_DISABLED", "NOT_GRAPHQL"]);
+
+export const GraphQLSchemaRecordSchema = z.object({
+  type: z.literal("GRAPHQL_SCHEMA"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  status: GraphQLStatus,
+  confidence: z.number().min(0).max(1),
+  httpStatus: z.number().int().nullable().default(null),
+  queryType: z.string().default(""),
+  mutationType: z.string().default(""),
+  subscriptionType: z.string().default(""),
+  typeCount: z.number().int().nonnegative().default(0),
+  queryFieldCount: z.number().int().nonnegative().default(0),
+  mutationFieldCount: z.number().int().nonnegative().default(0),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type GraphQLSchemaRecord = z.infer<typeof GraphQLSchemaRecordSchema>;
+
+/**
+ * An undocumented query parameter found by injecting a fixed wordlist of common names, each with
+ * a unique random probe value, and comparing the response to a calibration baseline. Only a
+ * discovered parameter is ever recorded — absence from the wordlist is not recorded, the same as
+ * a closed port is not recorded by the port scanner.
+ */
+export const ParamDiscoveryRecordSchema = z.object({
+  type: z.literal("PARAMETER_DISCOVERY"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  parameter: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  httpStatus: z.number().int().nullable().default(null),
+  baselineStatus: z.number().int().nullable().default(null),
+  baselineLength: z.number().int().nonnegative().default(0),
+  testLength: z.number().int().nonnegative().default(0),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type ParamDiscoveryRecord = z.infer<typeof ParamDiscoveryRecordSchema>;
+
+/**
+ * A public GitHub code search result mentioning the target domain. The request goes to GitHub's
+ * API, never the target. `evidence` has already passed through the same redaction the secret
+ * scanner uses, since arbitrary public code may contain a credential alongside the domain
+ * mention; a text match that looks like an actual secret also produces its own
+ * `SECRET_CANDIDATE` record via that same scanner.
+ */
+export const GithubCodeMatchRecordSchema = z.object({
+  type: z.literal("GITHUB_CODE_MATCH"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  query: z.string().min(1),
+  repository: z.string().default(""),
+  path: z.string().default(""),
+  sha: z.string().default(""),
+  score: z.number().default(0),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type GithubCodeMatchRecord = z.infer<typeof GithubCodeMatchRecordSchema>;
+
+/**
+ * A path the Wayback Machine has archived returning a successful response at some point, that
+ * is absent from this scan's own crawl — a candidate for a forgotten-but-possibly-still-live
+ * endpoint. This is never a live check: the URL is not requested again here, only compared
+ * against what this scan already observed, so confidence is capped accordingly.
+ */
+export const WaybackDiffRecordSchema = z.object({
+  type: z.literal("WAYBACK_DIFF"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  firstSeen: z.string().default(""),
+  lastStatus: z.number().int().default(0),
+  mimeType: z.string().default(""),
+  confidence: z.number().min(0).max(1),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type WaybackDiffRecord = z.infer<typeof WaybackDiffRecordSchema>;
+
 export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   HostObservationRecordSchema,
   DnsRecordSchema,
@@ -792,6 +897,10 @@ export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   CorsMisconfigurationRecordSchema,
   OpenRedirectRecordSchema,
   EmailSecurityRecordSchema,
+  GraphQLSchemaRecordSchema,
+  ParamDiscoveryRecordSchema,
+  GithubCodeMatchRecordSchema,
+  WaybackDiffRecordSchema,
 ]);
 export type DiscoveryRecord = z.infer<typeof DiscoveryRecordSchema>;
 

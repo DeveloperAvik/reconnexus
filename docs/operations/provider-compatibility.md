@@ -44,6 +44,11 @@ emitted by `reconnexus providers matrix` (`--json` for scripting).
 | `builtin-cloud-storage` | 18 | CLOUD_STORAGE_CHECK | ACTIVE | One GET per CNAME-derived candidate, always to the in-scope host itself. |
 | `builtin-cors-redirect` | 19 | CORS_REDIRECT_CHECK | ACTIVE | One GET per CORS target (crafted Origin header) and per open-redirect candidate (one query parameter overwritten with a reserved canary URL). |
 | `builtin-email-security` | 20 | DNS | ACTIVE | Read-only DNS TXT/MX lookups for the root domain (SPF, DMARC, and a fixed list of common DKIM selectors). Runs unconditionally, like DNS infrastructure collection. |
+| `builtin-graphql` | 21 | GRAPHQL_INTROSPECTION | ACTIVE | One introspection POST per candidate, plus up to two follow-up POSTs when introspection succeeds (field counts for the query/mutation root types). |
+| `builtin-param-discovery` | 22 | PARAMETER_DISCOVERY | ACTIVE | Two calibration GETs plus one GET per wordlist entry (~40) per candidate, each with an injected unique probe value. |
+| `builtin-ctlogs` | 02 (subdomain discovery) | PASSIVE | PASSIVE | One request to crt.sh's JSON API; never contacts the target. Not in the default provider list — opt in with `--providers`. |
+| `builtin-github-leaks` | 23 | GITHUB_LEAK_SEARCH | PASSIVE | One request to GitHub's code search API; never contacts the target. Requires `RECONNEXUS_GITHUB_TOKEN`. |
+| `builtin-wayback-diff` | 24 | WAYBACK_DIFF | PASSIVE | One request to web.archive.org's CDX API; never contacts the target, and never re-requests a diffed path. |
 | `builtin-login-finder` | 14 | ACTIVE_HTTP | ACTIVE | Fixed admin-login and cPanel/WHM/webmail path/port probes; read-only. |
 | `offline-ipmeta`, `mock`, `mock-url` | — | — | NONE | Deterministic test fixtures. |
 

@@ -29,7 +29,7 @@ export interface ReportOptions {
   maxRows?: number;
 }
 
-const FORMATS = new Set(["human", "json", "jsonl", "csv", "html"]);
+const FORMATS = new Set(["human", "json", "jsonl", "csv", "html", "sarif"]);
 
 /** Warnings that keep a successfully generated report from reading as a successful assessment. */
 function statusWarnings(report: Report): string[] {
@@ -50,7 +50,7 @@ function statusWarnings(report: Report): string[] {
 export async function reportCommand(ctx: Context, scanId: string, opts: ReportOptions): Promise<CommandResult<unknown>> {
   const format = opts.format ?? "human";
   if (!FORMATS.has(format)) {
-    throw new CliError(`unsupported report format: ${format} (expected human, json, jsonl, csv or html)`, ExitCode.USAGE_ERROR);
+    throw new CliError(`unsupported report format: ${format} (expected human, json, jsonl, csv, html or sarif)`, ExitCode.USAGE_ERROR);
   }
   if (opts.maxRows !== undefined && (!Number.isFinite(opts.maxRows) || opts.maxRows < 1)) {
     throw new CliError("--max-rows must be a positive integer", ExitCode.USAGE_ERROR);

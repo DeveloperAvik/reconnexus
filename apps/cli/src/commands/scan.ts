@@ -126,6 +126,10 @@ export interface ScanRunOptions {
   cloudStorageProviders?: string;
   corsRedirectProviders?: string;
   emailProviders?: string;
+  graphqlProviders?: string;
+  paramDiscoveryProviders?: string;
+  githubProviders?: string;
+  waybackProviders?: string;
   ports?: string;
   maxAttempts?: number;
 }
@@ -164,6 +168,10 @@ function buildOrchestrator(
   if (opts.cloudStorageProviders) overrides.CLOUD_STORAGE = splitList(opts.cloudStorageProviders);
   if (opts.corsRedirectProviders) overrides.CORS_REDIRECT = splitList(opts.corsRedirectProviders);
   if (opts.emailProviders) overrides.EMAIL_SECURITY = splitList(opts.emailProviders);
+  if (opts.graphqlProviders) overrides.GRAPHQL = splitList(opts.graphqlProviders);
+  if (opts.paramDiscoveryProviders) overrides.PARAMETER_DISCOVERY = splitList(opts.paramDiscoveryProviders);
+  if (opts.githubProviders) overrides.GITHUB_LEAK_SEARCH = splitList(opts.githubProviders);
+  if (opts.waybackProviders) overrides.WAYBACK_DIFF = splitList(opts.waybackProviders);
   return new ScanOrchestrator({
     db,
     runner,

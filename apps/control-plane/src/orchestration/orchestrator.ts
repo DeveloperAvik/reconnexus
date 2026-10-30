@@ -22,7 +22,7 @@ import { applyProfileLimits, profileFromSnapshot, type ScanProfile } from "./pro
 import { dependenciesSatisfied, deriveScanStatus } from "./scan-status.js";
 import { NON_RETRYABLE_SETTLED, aggregate, coverageStatusFor, countRecordsByType, fingerprintCorrelationStatus, isRetryableProviderOutcome, shouldRetryStage } from "./outcome-policy.js";
 import type { OrchestratorDeps, OrchestratorEvent, ProviderOutcomeSummary, ScanRunSummary } from "./types.js";
-import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CLOUD_STORAGE_CANDIDATES, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CORS_TARGETS, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PORT_SCAN_ADDRESSES, MAX_REDIRECT_CANDIDATES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, cloudStorageCandidateFor, defaultSleep, looksLikeJs, looksLikeSpec, openRedirectCandidateFor, originOfUrl, sorted } from "./stage-config.js";
+import { DEFAULT_PROVIDERS, GRAPHQL_WELL_KNOWN_PATHS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CLOUD_STORAGE_CANDIDATES, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CORS_TARGETS, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_GRAPHQL_CANDIDATES, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PARAM_DISCOVERY_CANDIDATES, MAX_PORT_SCAN_ADDRESSES, MAX_WAYBACK_OBSERVED_URLS, MAX_REDIRECT_CANDIDATES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, cloudStorageCandidateFor, defaultSleep, looksLikeJs, looksLikeSpec, openRedirectCandidateFor, originOfUrl, sorted } from "./stage-config.js";
 
 /**
  * ScanOrchestrator executes the implemented Phase 2 stages. It persists results through the
@@ -301,6 +301,14 @@ export class ScanOrchestrator {
         return this.runCorsRedirect(scan, job, policy);
       case StageId.EMAIL_SECURITY:
         return this.runEmailSecurity(scan, job, policy);
+      case StageId.GRAPHQL_INTEL:
+        return this.runGraphQLIntel(scan, job, policy);
+      case StageId.PARAMETER_DISCOVERY:
+        return this.runParameterDiscovery(scan, job, policy);
+      case StageId.GITHUB_LEAKS:
+        return this.runGithubLeaks(scan, job, policy);
+      case StageId.WAYBACK_DIFF:
+        return this.runWaybackDiff(scan, job, policy);
       case StageId.CORRELATION:
         return this.runCorrelation(scan, job);
       case StageId.REPORTING:
@@ -778,6 +786,119 @@ export class ScanOrchestrator {
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes);
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 21 — GraphQL intelligence. Sends a read-only introspection query to a bounded list of
+   * candidates: every URL already classified GRAPHQL during crawling, plus a fixed list of
+   * well-known GraphQL paths appended to each observed origin. Exists only when the policy
+   * grants GRAPHQL_INTROSPECTION.
+   */
+  private async runGraphQLIntel(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("GRAPHQL_INTROSPECTION")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "GRAPHQL_INTROSPECTION capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "GRAPHQL_INTROSPECTION not authorized" };
+    }
+    const candidates = new Set<string>();
+    const urlRows = await this.repo.listUrlObservations(scan.id);
+    for (const r of urlRows) {
+      const data = r.data as { classifications?: Array<{ category: string }> };
+      if ((data.classifications ?? []).some((c) => c.category === "GRAPHQL")) candidates.add(r.url);
+    }
+    const probes = await this.repo.listHttpObservations(scan.id);
+    const originSet = new Set<string>();
+    for (const p of probes) {
+      if (p.probe_status === "OK" || p.probe_status === "OVERSIZED" || p.probe_status === "REDIRECT_DENIED") {
+        const o = originOfUrl(p.final_url || p.url);
+        if (o) originSet.add(o);
+      }
+    }
+    for (const origin of sorted(originSet)) {
+      for (const path of GRAPHQL_WELL_KNOWN_PATHS) candidates.add(origin + path);
+    }
+    const urls = sorted(candidates).slice(0, MAX_GRAPHQL_CANDIDATES);
+    if (urls.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no eligible HTTP origins observed" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no candidates" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.GRAPHQL)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.GRAPHQL, provider, inputs: { urls } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { candidates: urls.length });
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 22 — parameter discovery. Injects a fixed wordlist of common parameter names into
+   * already-crawled URLs that already carry a query string (the clearest signal an endpoint is
+   * parameter-driven), bounded to a small candidate set. Exists only when the policy grants
+   * PARAMETER_DISCOVERY.
+   */
+  private async runParameterDiscovery(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("PARAMETER_DISCOVERY")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "PARAMETER_DISCOVERY capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "PARAMETER_DISCOVERY not authorized" };
+    }
+    const urlRows = await this.repo.listUrlObservations(scan.id);
+    const candidates = new Set<string>();
+    for (const r of urlRows) {
+      if (r.url.includes("?")) candidates.add(r.url);
+    }
+    const urls = sorted(candidates).slice(0, MAX_PARAM_DISCOVERY_CANDIDATES);
+    if (urls.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no crawled URLs with an existing query string" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no candidates" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.PARAMETER_DISCOVERY)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.PARAMETER_DISCOVERY, provider, inputs: { urls } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { candidates: urls.length });
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 23 — GitHub leak search. Searches GitHub's public code search API for mentions of the
+   * scan's root domain; the request goes to GitHub, never the target. Exists only when the
+   * policy grants GITHUB_LEAK_SEARCH.
+   */
+  private async runGithubLeaks(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("GITHUB_LEAK_SEARCH")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "GITHUB_LEAK_SEARCH capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "GITHUB_LEAK_SEARCH not authorized" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.GITHUB_LEAK_SEARCH)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.GITHUB_LEAK_SEARCH, provider, inputs: { rootDomain: scan.root_domain } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes);
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 24 — Wayback diffing. Compares the Wayback Machine's archive of the scan's root domain
+   * against every URL this scan has already observed, to surface archived-but-unlinked paths;
+   * the request goes to web.archive.org, never the target, and no diffed path is ever requested
+   * again. Exists only when the policy grants WAYBACK_DIFF.
+   */
+  private async runWaybackDiff(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("WAYBACK_DIFF")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "WAYBACK_DIFF capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "WAYBACK_DIFF not authorized" };
+    }
+    const urlRows = await this.repo.listUrlObservations(scan.id);
+    const observed = sorted(new Set(urlRows.map((r) => r.url))).slice(0, MAX_WAYBACK_OBSERVED_URLS);
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.WAYBACK_DIFF)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.WAYBACK_DIFF, provider, inputs: { rootDomain: scan.root_domain, urls: observed } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { observed: observed.length });
     return { status, providers: outcomes };
   }
 

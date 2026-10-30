@@ -24,6 +24,10 @@ var RecordTypes = []string{
 	TypeCorsMisconfig,
 	TypeOpenRedirect,
 	TypeEmailSecurity,
+	TypeGraphQLSchema,
+	TypeParamDiscovery,
+	TypeGithubCodeMatch,
+	TypeWaybackDiff,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -130,6 +134,23 @@ func SampleRecords() []Record {
 			Category: EmailCategoryDMARC, Status: EmailSecurityWeak, Confidence: 0.8, Value: "v=DMARC1; p=none; pct=100; rua=mailto:dmarc@example.com",
 			Detail:   map[string]any{"hasMx": true, "policy": "none", "pct": "100"},
 			Evidence: "DMARC policy is p=none (monitoring only; failing mail is not rejected or quarantined)", EvidenceType: "MONITOR_ONLY",
+		}},
+		{Type: TypeGraphQLSchema, Host: "app.example.com", URL: "https://app.example.com/graphql", Provider: "builtin-graphql", Source: "graphql", GraphQL: &GraphQLInfo{
+			Status: GraphQLIntrospectionEnabled, Confidence: 0.95, HTTPStatus: &status, QueryType: "Query", MutationType: "Mutation", SubscriptionType: "",
+			TypeCount: 42, QueryFieldCount: 12, MutationFieldCount: 5,
+			Evidence: "introspection query returned a non-null __schema object", EvidenceType: "SCHEMA_DISCLOSED",
+		}},
+		{Type: TypeParamDiscovery, Host: "app.example.com", URL: "https://app.example.com/search", Provider: "builtin-param-discovery", Source: "param-discovery", ParamDiscovery: &ParamDiscoveryInfo{
+			Parameter: "debug", Confidence: 0.85, HTTPStatus: &status, BaselineStatus: &status, BaselineLength: 1024, TestLength: 1180,
+			Evidence: "injected probe value for parameter \"debug\" was reflected in the response", EvidenceType: "REFLECTED_VALUE",
+		}},
+		{Type: TypeGithubCodeMatch, Host: "example.com", URL: "https://github.com/someorg/somerepo/blob/main/config.yml", Provider: "builtin-github-leaks", Source: "github", GithubMatch: &GithubCodeMatchInfo{
+			Query: "example.com", Repository: "someorg/somerepo", Path: "config.yml", SHA: "abc123", Score: 1.0,
+			Evidence: "endpoint: https://api.example.com/v1 # [REDACTED]", EvidenceType: "CODE_MATCH",
+		}},
+		{Type: TypeWaybackDiff, Host: "example.com", URL: "https://example.com/old-admin/", Provider: "builtin-wayback-diff", Source: "wayback", WaybackDiff: &WaybackDiffInfo{
+			FirstSeen: "20180512000000", LastStatus: 200, MimeType: "text/html", Confidence: 0.5,
+			Evidence: "archived by the Wayback Machine returning HTTP 200, but not observed by this scan's own crawl", EvidenceType: "NOT_CURRENTLY_OBSERVED",
 		}},
 	}
 }

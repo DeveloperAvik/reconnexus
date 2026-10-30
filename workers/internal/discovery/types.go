@@ -22,6 +22,9 @@ type Job struct {
 	FixturePath              string       `json:"fixturePath,omitempty"`
 	ResolverAddress          string       `json:"resolverAddress,omitempty"`
 	RdapBaseURL              string       `json:"rdapBaseUrl,omitempty"`
+	CtLogBaseURL             string       `json:"ctLogBaseUrl,omitempty"`
+	GithubAPIBase            string       `json:"githubApiBase,omitempty"`
+	WaybackAPIBase           string       `json:"waybackApiBase,omitempty"`
 	WorkDir                  string       `json:"workDir,omitempty"`
 	TimeoutMs                int          `json:"timeoutMs,omitempty"`
 	MaxOutputBytes           int          `json:"maxOutputBytes,omitempty"`
@@ -180,6 +183,77 @@ type Record struct {
 	OpenRedirect *OpenRedirectInfo `json:"openRedirect,omitempty"`
 	// EMAIL_SECURITY
 	EmailSecurity *EmailSecurityInfo `json:"emailSecurity,omitempty"`
+	// GRAPHQL_SCHEMA
+	GraphQL *GraphQLInfo `json:"graphql,omitempty"`
+	// PARAMETER_DISCOVERY
+	ParamDiscovery *ParamDiscoveryInfo `json:"paramDiscovery,omitempty"`
+	// GITHUB_CODE_MATCH
+	GithubMatch *GithubCodeMatchInfo `json:"githubMatch,omitempty"`
+	// WAYBACK_DIFF
+	WaybackDiff *WaybackDiffInfo `json:"waybackDiff,omitempty"`
+}
+
+// GithubCodeMatchInfo is a public GitHub code search result mentioning the target domain. The
+// request goes to GitHub's API, never the target, and Evidence is passed through
+// redactAllRuleMatches (the same redaction the secret scanner uses) before being stored, since
+// arbitrary public code may contain a credential alongside the domain mention. Any text match
+// that looks like an actual secret also produces its own SECRET_CANDIDATE record via the same
+// scanner used for the target's own JavaScript artifacts.
+type GithubCodeMatchInfo struct {
+	Query        string  `json:"query"`
+	Repository   string  `json:"repository"`
+	Path         string  `json:"path"`
+	SHA          string  `json:"sha"`
+	Score        float64 `json:"score"`
+	Evidence     string  `json:"evidence"`
+	EvidenceType string  `json:"evidenceType"`
+}
+
+// WaybackDiffInfo is a path the Wayback Machine has archived returning a successful response at
+// some point, that is absent from this scan's own crawl — a candidate for a forgotten-but-still-
+// live endpoint. This is never a live check: the URL is not requested again here, only compared
+// against what this scan already observed, so confidence is capped accordingly.
+type WaybackDiffInfo struct {
+	FirstSeen    string  `json:"firstSeen"`
+	LastStatus   int     `json:"lastStatus"`
+	MimeType     string  `json:"mimeType"`
+	Confidence   float64 `json:"confidence"`
+	Evidence     string  `json:"evidence"`
+	EvidenceType string  `json:"evidenceType"`
+}
+
+// GraphQLInfo is the result of sending an introspection query to a candidate GraphQL endpoint.
+// INTROSPECTION_ENABLED discloses the schema (query/mutation/subscription root types and the
+// number of top-level fields each exposes); INTROSPECTION_DISABLED is a good outcome, not a
+// finding; NOT_GRAPHQL means the response did not look like a GraphQL endpoint at all.
+type GraphQLInfo struct {
+	Status             string  `json:"status"`
+	Confidence         float64 `json:"confidence"`
+	HTTPStatus         *int    `json:"httpStatus"`
+	QueryType          string  `json:"queryType"`
+	MutationType       string  `json:"mutationType"`
+	SubscriptionType   string  `json:"subscriptionType"`
+	TypeCount          int     `json:"typeCount"`
+	QueryFieldCount    int     `json:"queryFieldCount"`
+	MutationFieldCount int     `json:"mutationFieldCount"`
+	Evidence           string  `json:"evidence"`
+	EvidenceType       string  `json:"evidenceType"`
+}
+
+// ParamDiscoveryInfo is an undocumented query parameter found by injecting a fixed wordlist of
+// common parameter names, each with a unique random probe value, and comparing the response to a
+// calibration baseline (two unmodified requests to the same URL, to measure natural response
+// variance before anything is flagged). Only a discovered parameter is ever recorded — absence
+// from the wordlist is not recorded, same as a closed port is not recorded by the port scanner.
+type ParamDiscoveryInfo struct {
+	Parameter      string  `json:"parameter"`
+	Confidence     float64 `json:"confidence"`
+	HTTPStatus     *int    `json:"httpStatus"`
+	BaselineStatus *int    `json:"baselineStatus"`
+	BaselineLength int     `json:"baselineLength"`
+	TestLength     int     `json:"testLength"`
+	Evidence       string  `json:"evidence"`
+	EvidenceType   string  `json:"evidenceType"`
 }
 
 // EmailSecurityInfo is a single SPF, DMARC or DKIM observation for a domain. Status semantics
@@ -505,6 +579,10 @@ const (
 	TypeCorsMisconfig      = "CORS_MISCONFIGURATION"
 	TypeOpenRedirect       = "OPEN_REDIRECT"
 	TypeEmailSecurity      = "EMAIL_SECURITY"
+	TypeGraphQLSchema      = "GRAPHQL_SCHEMA"
+	TypeParamDiscovery     = "PARAMETER_DISCOVERY"
+	TypeGithubCodeMatch    = "GITHUB_CODE_MATCH"
+	TypeWaybackDiff        = "WAYBACK_DIFF"
 )
 
 // Login-interface kinds and statuses. DETECTED means a concrete marker was observed; POSSIBLE

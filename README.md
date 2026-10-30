@@ -50,6 +50,11 @@ core.
 | Cloud storage exposure: CNAME-fronted S3/GCS bucket listability (`builtin-cloud-storage`, opt-in `CLOUD_STORAGE_CHECK` capability; `buckets`) | ✅ |
 | CORS/open-redirect probes: reflective CORS and parameter-driven open-redirect checks on observed targets (`builtin-cors-redirect`, opt-in `CORS_REDIRECT_CHECK` capability; `cors`, `redirects`) | ✅ |
 | Email security posture: SPF/DMARC/DKIM checks via read-only DNS lookups (`builtin-email-security`, runs under the baseline `DNS` capability; `email`) | ✅ |
+| GraphQL intelligence: introspection probing of candidate endpoints (`builtin-graphql`, opt-in `GRAPHQL_INTROSPECTION` capability; `graphql`) | ✅ |
+| Parameter discovery: undocumented query parameters via wordlist probing with calibrated response diffing (`builtin-param-discovery`, opt-in `PARAMETER_DISCOVERY` capability; `discovered-params`) | ✅ |
+| Certificate Transparency log pivots: subdomain discovery via crt.sh (`builtin-ctlogs`, runs under the baseline `PASSIVE` capability, opt-in via `--providers`) | ✅ |
+| GitHub leak search: public code search for domain mentions, reusing the secret-scan engine on matched snippets (`builtin-github-leaks`, opt-in `GITHUB_LEAK_SEARCH` capability; `github`) | ✅ |
+| Wayback diffing: archived-but-unobserved paths via Wayback Machine CDX comparison (`builtin-wayback-diff`, opt-in `WAYBACK_DIFF` capability; `wayback`) | ✅ |
 | Content discovery: exposed VCS/env/backup/debug/listing paths, soft-404 calibrated (`builtin-content`, opt-in `CONTENT_DISCOVERY` capability; `content`) | ✅ |
 | Risk ranking per host (`risk`) and scan profiles (`--profile quick/standard/deep/stealth`) | ✅ |
 | Admin login & cPanel finder: read-only fixed-path interface discovery (`admin`, `cpanel`) | ✅ |
@@ -58,6 +63,7 @@ core.
 | Structured logging with secret redaction | ✅ |
 | Provider health checks (`doctor`, `providers`, Go `provider-check`) | ✅ |
 | Self-contained static HTML report export (`--format html`, escaped, no scripts) | ✅ |
+| SARIF 2.1.0 findings export for CI/security-dashboard integration (`--format sarif`) | ✅ |
 | Live assessment console (per-stage progress; frame on a TTY, structured lines otherwise) | ✅ |
 
 ## Hardening (Phase 8)
@@ -130,8 +136,9 @@ npm run rn -- takeover "$SCAN"
 npm run rn -- admin "$SCAN"
 npm run rn -- cpanel "$SCAN"
 npm run rn -- correlations "$SCAN"
-npm run rn -- report "$SCAN"                 # or --format json|jsonl|csv|html
+npm run rn -- report "$SCAN"                 # or --format json|jsonl|csv|html|sarif
 npm run rn -- report "$SCAN" --format html --out report.html
+npm run rn -- report "$SCAN" --format sarif --out report.sarif.json   # for CI / code-scanning dashboards
 ```
 
 Notes:
