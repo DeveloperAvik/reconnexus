@@ -48,6 +48,7 @@ const OPT_IN_STAGES: Record<string, string> = {
   [StageId.TEMPLATE_CHECKS]: "ACTIVE_TEMPLATE_CHECK",
   [StageId.CONTENT_DISCOVERY]: "CONTENT_DISCOVERY",
   [StageId.CLOUD_STORAGE]: "CLOUD_STORAGE_CHECK",
+  [StageId.CORS_REDIRECT]: "CORS_REDIRECT_CHECK",
 };
 
 export function plannedStagesFor(capabilities: readonly string[], profile?: ScanProfile | null): string[] {

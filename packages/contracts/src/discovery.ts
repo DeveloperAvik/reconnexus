@@ -18,6 +18,7 @@ export const DiscoveryJobKind = {
   TEMPLATE_CHECK: "TEMPLATE_CHECK",
   CONTENT_DISCOVERY: "CONTENT_DISCOVERY",
   CLOUD_STORAGE: "CLOUD_STORAGE",
+  CORS_REDIRECT: "CORS_REDIRECT",
 } as const;
 export type DiscoveryJobKindValue = (typeof DiscoveryJobKind)[keyof typeof DiscoveryJobKind];
 
@@ -33,7 +34,7 @@ export const DiscoveryJobSchema = z.object({
   projectId: z.string().uuid(),
   stage: z.string().min(1),
   jobKey: z.string().min(1),
-  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE"]),
+  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE", "CORS_REDIRECT"]),
   provider: z.string().min(1),
   /** The full policy is passed so the worker can enforce scope independently. */
   policy: ScopePolicySchema,
@@ -85,6 +86,13 @@ export const DiscoveryJobSchema = z.object({
     cloudCandidates: z
       .array(z.object({ url: z.string().min(1), provider: z.enum(["S3", "GCS"]), bucket: z.string().min(1) }))
       .optional(),
+    /**
+     * CORS_REDIRECT open-redirect candidates: an already-observed URL together with the single
+     * query parameter the control plane matched against a known open-redirect parameter name.
+     * The worker overwrites only that parameter with its canary value; it never guesses a
+     * parameter name beyond this.
+     */
+    redirectCandidates: z.array(z.object({ url: z.string().min(1), parameter: z.string().min(1) })).optional(),
   }),
   limits: LimitsSchema,
   allowRestrictedAddresses: z.boolean().default(false),
@@ -683,6 +691,55 @@ export const ContentDiscoveryRecordSchema = z.object({
 });
 export type ContentDiscoveryRecord = z.infer<typeof ContentDiscoveryRecordSchema>;
 
+/**
+ * Whether an in-scope origin reflects an arbitrary, caller-supplied Origin header back in
+ * Access-Control-Allow-Origin. `NOT_VULNERABLE` is recorded (not omitted) so the probe's
+ * coverage is auditable. Reflection combined with `Access-Control-Allow-Credentials: true` lets
+ * any origin read authenticated responses; without credentials it is weaker but still unusual.
+ */
+export const CorsStatus = z.enum(["REFLECTS_ARBITRARY_ORIGIN_WITH_CREDENTIALS", "REFLECTS_ARBITRARY_ORIGIN", "NOT_VULNERABLE"]);
+
+export const CorsMisconfigurationRecordSchema = z.object({
+  type: z.literal("CORS_MISCONFIGURATION"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  status: CorsStatus,
+  confidence: z.number().min(0).max(1),
+  allowOrigin: z.string().default(""),
+  allowCredentials: z.boolean().default(false),
+  testedOrigin: z.string().min(1),
+  httpStatus: z.number().int().nullable().default(null),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type CorsMisconfigurationRecord = z.infer<typeof CorsMisconfigurationRecordSchema>;
+
+/**
+ * Whether overwriting one query parameter on an in-scope URL with an externally-controlled
+ * canary value causes the response to redirect there. `NOT_VULNERABLE` is recorded (not
+ * omitted) so the probe's coverage is auditable.
+ */
+export const OpenRedirectStatus = z.enum(["CONFIRMED", "NOT_VULNERABLE"]);
+
+export const OpenRedirectRecordSchema = z.object({
+  type: z.literal("OPEN_REDIRECT"),
+  url: z.string().min(1),
+  testedUrl: z.string().min(1),
+  host: z.string().min(1),
+  parameter: z.string().min(1),
+  status: OpenRedirectStatus,
+  confidence: z.number().min(0).max(1),
+  httpStatus: z.number().int().nullable().default(null),
+  location: z.string().default(""),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type OpenRedirectRecord = z.infer<typeof OpenRedirectRecordSchema>;
+
 export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   HostObservationRecordSchema,
   DnsRecordSchema,
@@ -703,6 +760,8 @@ export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   TemplateFindingRecordSchema,
   ContentDiscoveryRecordSchema,
   CloudStorageRecordSchema,
+  CorsMisconfigurationRecordSchema,
+  OpenRedirectRecordSchema,
 ]);
 export type DiscoveryRecord = z.infer<typeof DiscoveryRecordSchema>;
 

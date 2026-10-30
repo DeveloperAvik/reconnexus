@@ -22,7 +22,7 @@ import { applyProfileLimits, profileFromSnapshot, type ScanProfile } from "./pro
 import { dependenciesSatisfied, deriveScanStatus } from "./scan-status.js";
 import { NON_RETRYABLE_SETTLED, aggregate, coverageStatusFor, countRecordsByType, fingerprintCorrelationStatus, isRetryableProviderOutcome, shouldRetryStage } from "./outcome-policy.js";
 import type { OrchestratorDeps, OrchestratorEvent, ProviderOutcomeSummary, ScanRunSummary } from "./types.js";
-import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CLOUD_STORAGE_CANDIDATES, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PORT_SCAN_ADDRESSES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, cloudStorageCandidateFor, defaultSleep, looksLikeJs, looksLikeSpec, originOfUrl, sorted } from "./stage-config.js";
+import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CLOUD_STORAGE_CANDIDATES, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CORS_TARGETS, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PORT_SCAN_ADDRESSES, MAX_REDIRECT_CANDIDATES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, cloudStorageCandidateFor, defaultSleep, looksLikeJs, looksLikeSpec, openRedirectCandidateFor, originOfUrl, sorted } from "./stage-config.js";
 
 /**
  * ScanOrchestrator executes the implemented Phase 2 stages. It persists results through the
@@ -297,6 +297,8 @@ export class ScanOrchestrator {
         return this.runContentDiscovery(scan, job, policy);
       case StageId.CLOUD_STORAGE:
         return this.runCloudStorage(scan, job, policy);
+      case StageId.CORS_REDIRECT:
+        return this.runCorsRedirect(scan, job, policy);
       case StageId.CORRELATION:
         return this.runCorrelation(scan, job);
       case StageId.REPORTING:
@@ -710,6 +712,53 @@ export class ScanOrchestrator {
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes, { candidates: candidates.length });
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 19 — CORS misconfiguration and open-redirect probing. CORS targets are origins already
+   * observed during HTTP probing; open-redirect candidates are already-crawled URLs whose query
+   * string carries a parameter matching a known redirect-shaped name. Both probes only ever
+   * target an in-scope URL already collected. Exists only when the policy grants
+   * CORS_REDIRECT_CHECK.
+   */
+  private async runCorsRedirect(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("CORS_REDIRECT_CHECK")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "CORS_REDIRECT_CHECK capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "CORS_REDIRECT_CHECK not authorized" };
+    }
+    const probes = await this.repo.listHttpObservations(scan.id);
+    const originSet = new Set<string>();
+    for (const p of probes) {
+      if (p.probe_status === "OK" || p.probe_status === "OVERSIZED" || p.probe_status === "REDIRECT_DENIED") {
+        const o = originOfUrl(p.final_url || p.url);
+        if (o) originSet.add(o);
+      }
+    }
+    const corsTargets = sorted(originSet).slice(0, MAX_CORS_TARGETS);
+
+    const urlRows = await this.repo.listUrlObservations(scan.id);
+    const seenRedirect = new Set<string>();
+    const redirectCandidates: Array<{ url: string; parameter: string }> = [];
+    for (const r of urlRows) {
+      if (seenRedirect.has(r.url)) continue;
+      const derived = openRedirectCandidateFor(r.url);
+      if (!derived) continue;
+      seenRedirect.add(r.url);
+      redirectCandidates.push({ url: r.url, parameter: derived.parameter });
+      if (redirectCandidates.length >= MAX_REDIRECT_CANDIDATES) break;
+    }
+
+    if (corsTargets.length === 0 && redirectCandidates.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no eligible origins or redirect-shaped URLs observed" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no targets" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.CORS_REDIRECT)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.CORS_REDIRECT, provider, inputs: { urls: corsTargets, redirectCandidates } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { corsTargets: corsTargets.length, redirectCandidates: redirectCandidates.length });
     return { status, providers: outcomes };
   }
 

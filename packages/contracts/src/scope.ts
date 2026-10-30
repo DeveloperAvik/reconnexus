@@ -14,6 +14,7 @@ export const CapabilitySchema = z.enum([
   "PORT_SCAN",
   "CONTENT_DISCOVERY",
   "CLOUD_STORAGE_CHECK",
+  "CORS_REDIRECT_CHECK",
   "INTERNAL_NETWORK",
 ]);
 

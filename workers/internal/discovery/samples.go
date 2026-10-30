@@ -21,6 +21,8 @@ var RecordTypes = []string{
 	TypeTemplateFinding,
 	TypeContentDiscovery,
 	TypeCloudStorage,
+	TypeCorsMisconfig,
+	TypeOpenRedirect,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -112,6 +114,16 @@ func SampleRecords() []Record {
 		{Type: TypeCloudStorage, Host: "static.example.com", URL: "https://static.example.com/", Provider: "builtin-cloud-storage", Source: "cloud-storage", CloudStorage: &CloudStorageInfo{
 			CloudProvider: CloudProviderS3, Bucket: "static.example.com", Origin: "CUSTOM_DOMAIN", Status: CloudStorageListable, Confidence: 0.9,
 			HTTPStatus: &status, ObjectCount: 42, Evidence: "HTTP 200 with a <ListBucketResult> object listing", EvidenceType: "LIST_BUCKET_RESULT",
+		}},
+		{Type: TypeCorsMisconfig, Host: "app.example.com", URL: "https://app.example.com/api/account", Provider: "builtin-cors-redirect", Source: "cors-redirect", Cors: &CorsInfo{
+			Status: CorsReflectsArbitraryOriginWithCredentials, Confidence: 0.9, AllowOrigin: "https://cors-probe.reconnexus.invalid", AllowCredentials: true,
+			TestedOrigin: "https://cors-probe.reconnexus.invalid", HTTPStatus: &status,
+			Evidence: "Access-Control-Allow-Origin reflected the arbitrary Origin sent, with Access-Control-Allow-Credentials: true", EvidenceType: "REFLECTED_ORIGIN_WITH_CREDENTIALS",
+		}},
+		{Type: TypeOpenRedirect, Host: "app.example.com", URL: "https://app.example.com/login?next=/dashboard", Provider: "builtin-cors-redirect", Source: "cors-redirect", OpenRedirect: &OpenRedirectInfo{
+			TestedURL: "https://app.example.com/login?next=https%3A%2F%2Fredirect-canary.reconnexus.invalid%2F", Parameter: "next", Status: RedirectConfirmed, Confidence: 0.9,
+			HTTPStatus: &status, Location: "https://redirect-canary.reconnexus.invalid/",
+			Evidence: "redirected to the injected externally-controlled value", EvidenceType: "REDIRECTED_TO_CANARY",
 		}},
 	}
 }

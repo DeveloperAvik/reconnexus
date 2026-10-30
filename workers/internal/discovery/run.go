@@ -86,6 +86,7 @@ func init() {
 	register(nucleiProvider{})
 	register(builtinContent{})
 	register(builtinCloudStorage{})
+	register(builtinCorsRedirect{})
 }
 
 // Run executes a discovery job and returns a truthful result. An error is returned only
@@ -354,6 +355,34 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no content discovery performed")
 			return finalizeResult(base), nil
 		}
+	case "CORS_REDIRECT":
+		urls := make([]string, 0, len(job.Inputs.URLs))
+		for _, u := range job.Inputs.URLs {
+			d := engine.Check(scope.Request{Kind: "URL", Value: u, Capability: requiredCapOr(requiredCap, "CORS_REDIRECT_CHECK")})
+			if d.Allowed {
+				urls = append(urls, u)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.URLs = urls
+		cands := make([]RedirectCandidate, 0, len(job.Inputs.RedirectCandidates))
+		for _, c := range job.Inputs.RedirectCandidates {
+			d := engine.Check(scope.Request{Kind: "URL", Value: c.URL, Capability: requiredCapOr(requiredCap, "CORS_REDIRECT_CHECK")})
+			if d.Allowed {
+				cands = append(cands, c)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.RedirectCandidates = cands
+		if len(urls) == 0 && len(cands) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all targets were out of scope; no CORS or redirect checks performed")
+			return finalizeResult(base), nil
+		}
 	case "PORT_SCAN":
 		if err := validatePorts(job.Inputs.Ports); err != nil {
 			base.Status = StatusFailed
@@ -576,6 +605,8 @@ func unitCount(job Job) int {
 		return len(job.Inputs.URLs)
 	case "CLOUD_STORAGE":
 		return len(job.Inputs.CloudCandidates)
+	case "CORS_REDIRECT":
+		return len(job.Inputs.URLs) + len(job.Inputs.RedirectCandidates)
 	}
 	return 1
 }

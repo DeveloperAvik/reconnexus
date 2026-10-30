@@ -29,6 +29,8 @@ import { reportCommand } from "./commands/report.js";
 import { takeoverCommand } from "./commands/takeover.js";
 import { adminCommand, cpanelCommand } from "./commands/finder.js";
 import { bucketsCommand } from "./commands/buckets.js";
+import { corsCommand } from "./commands/cors.js";
+import { redirectsCommand } from "./commands/redirects.js";
 import { contentCommand } from "./commands/content.js";
 import { portsCommand } from "./commands/ports.js";
 import { riskCommand } from "./commands/risk.js";
@@ -239,6 +241,7 @@ function buildProgram(): Command {
       .option("--template-tags <tags>", "template tags to include, e.g. exposure,misconfig (intrusive tags are always excluded)")
       .option("--cloud-storage-providers <list>", "comma-separated cloud-storage providers (stage runs only if the policy grants CLOUD_STORAGE_CHECK)")
       .option("--content-providers <list>", "comma-separated content-discovery providers (stage runs only if the policy grants CONTENT_DISCOVERY)")
+      .option("--cors-redirect-providers <list>", "comma-separated CORS/open-redirect providers (stage runs only if the policy grants CORS_REDIRECT_CHECK)")
       .option("--ports <spec>", "TCP ports to scan, e.g. 80,443,8000-8100 (default: a built-in list of common service ports)")
       .option("--max-attempts <n>", "maximum attempts per stage", (v: string) => Number(v));
 
@@ -263,6 +266,7 @@ function buildProgram(): Command {
         ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
         ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
         ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
+        ...(opts.corsRedirectProviders ? { corsRedirectProviders: opts.corsRedirectProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -287,6 +291,7 @@ function buildProgram(): Command {
         ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
         ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
         ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
+        ...(opts.corsRedirectProviders ? { corsRedirectProviders: opts.corsRedirectProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -601,6 +606,40 @@ function buildProgram(): Command {
         contentCommand(ctx, id, {
           ...(opts.host ? { host: opts.host } : {}),
           ...(opts.category ? { category: opts.category } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // CORS reflection probes (cors-redirect stage; requires CORS_REDIRECT_CHECK)
+  program
+    .command("cors <scanId>")
+    .description("list CORS reflection probes found by the cors-redirect stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--status <status>", "filter by status (REFLECTS_ARBITRARY_ORIGIN_WITH_CREDENTIALS, REFLECTS_ARBITRARY_ORIGIN, NOT_VULNERABLE)")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("cors", program, (ctx) =>
+        corsCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Open-redirect probes (cors-redirect stage; requires CORS_REDIRECT_CHECK)
+  program
+    .command("redirects <scanId>")
+    .description("list open-redirect probes found by the cors-redirect stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--status <status>", "filter by status (CONFIRMED, NOT_VULNERABLE)")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("redirects", program, (ctx) =>
+        redirectsCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
           ...(opts.status ? { status: opts.status } : {}),
           ...(opts.limit ? { limit: opts.limit } : {}),
         }),

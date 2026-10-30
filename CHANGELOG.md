@@ -8,6 +8,21 @@ planned functionality; entries only describe what is actually implemented and te
 
 ### Added
 
+- **CORS misconfiguration and open-redirect probes (stage `19-cors-redirect`,
+  `builtin-cors-redirect` provider):** two independent, read-only active checks. CORS reflection
+  sends a crafted, arbitrary `Origin` header (a reserved, non-resolvable `.invalid` domain) to
+  origins already observed during HTTP probing and checks whether the response reflects it back in
+  `Access-Control-Allow-Origin` — the exact gap the existing security-checks stage calls out, since
+  it only observes CORS headers passively, without ever sending an `Origin` header. Open redirect
+  overwrites one redirect-shaped query parameter (`next`, `redirect`, `return_url`, etc.) on an
+  already-collected URL with a reserved canary URL and checks whether the response redirects
+  there. Both probes only ever target an in-scope URL already observed; no real browser is ever
+  sent anywhere. Opt-in via the new `CORS_REDIRECT_CHECK` capability (migration `0009`), so existing
+  policies keep their plan; the `quick` and `stealth` profiles leave it out. Reflection with
+  `Access-Control-Allow-Credentials: true` becomes a `HIGH` `CORS_MISCONFIGURATION` finding;
+  reflection alone is `MEDIUM`. A confirmed redirect to the injected canary becomes a `MEDIUM`
+  `OPEN_REDIRECT` finding. `NOT_VULNERABLE` results stay inventory. New `cors` and `redirects`
+  commands and `--cors-redirect-providers`. See `docs/architecture/cors-redirect.md`.
 - **Cloud storage exposure (stage `18-cloud-storage`, `builtin-cloud-storage` provider):** checks
   whether an Amazon S3 or Google Cloud Storage bucket fronted by a CNAME on an in-scope host is
   publicly listable. Candidates are derived from DNS CNAME records of in-scope hosts already

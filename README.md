@@ -48,6 +48,7 @@ core.
 | Port scanning & service identification (`nmap`, opt-in `PORT_SCAN` capability; `ports`) | ✅ |
 | Template-based checks (`nuclei`, detection-only, opt-in `ACTIVE_TEMPLATE_CHECK`) | ✅ |
 | Cloud storage exposure: CNAME-fronted S3/GCS bucket listability (`builtin-cloud-storage`, opt-in `CLOUD_STORAGE_CHECK` capability; `buckets`) | ✅ |
+| CORS/open-redirect probes: reflective CORS and parameter-driven open-redirect checks on observed targets (`builtin-cors-redirect`, opt-in `CORS_REDIRECT_CHECK` capability; `cors`, `redirects`) | ✅ |
 | Content discovery: exposed VCS/env/backup/debug/listing paths, soft-404 calibrated (`builtin-content`, opt-in `CONTENT_DISCOVERY` capability; `content`) | ✅ |
 | Risk ranking per host (`risk`) and scan profiles (`--profile quick/standard/deep/stealth`) | ✅ |
 | Admin login & cPanel finder: read-only fixed-path interface discovery (`admin`, `cpanel`) | ✅ |

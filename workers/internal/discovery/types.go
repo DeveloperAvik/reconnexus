@@ -31,22 +31,31 @@ type Job struct {
 }
 
 type Inputs struct {
-	RootDomain      string                  `json:"rootDomain,omitempty"`
-	Names           []string                `json:"names,omitempty"`
-	Addresses       []AddressInput          `json:"addresses,omitempty"`
-	URLs            []string                `json:"urls,omitempty"`
-	SeedURLs        []string                `json:"seedUrls,omitempty"`
-	Domains         []string                `json:"domains,omitempty"`
-	CrawlDepth      int                     `json:"crawlDepth,omitempty"`
-	RequestBudget   int                     `json:"requestBudget,omitempty"`
-	JSURLs          []string                `json:"jsUrls,omitempty"`
-	SpecURLs        []string                `json:"specUrls,omitempty"`
-	SpecProbeURLs   []string                `json:"specProbeUrls,omitempty"`
-	FetchSourceMaps bool                    `json:"fetchSourceMaps,omitempty"`
-	ArtifactURLs    []string                `json:"artifactUrls,omitempty"`
-	Ports           string                  `json:"ports,omitempty"`
-	TemplateTags    string                  `json:"templateTags,omitempty"`
-	CloudCandidates []CloudStorageCandidate `json:"cloudCandidates,omitempty"`
+	RootDomain         string                  `json:"rootDomain,omitempty"`
+	Names              []string                `json:"names,omitempty"`
+	Addresses          []AddressInput          `json:"addresses,omitempty"`
+	URLs               []string                `json:"urls,omitempty"`
+	SeedURLs           []string                `json:"seedUrls,omitempty"`
+	Domains            []string                `json:"domains,omitempty"`
+	CrawlDepth         int                     `json:"crawlDepth,omitempty"`
+	RequestBudget      int                     `json:"requestBudget,omitempty"`
+	JSURLs             []string                `json:"jsUrls,omitempty"`
+	SpecURLs           []string                `json:"specUrls,omitempty"`
+	SpecProbeURLs      []string                `json:"specProbeUrls,omitempty"`
+	FetchSourceMaps    bool                    `json:"fetchSourceMaps,omitempty"`
+	ArtifactURLs       []string                `json:"artifactUrls,omitempty"`
+	Ports              string                  `json:"ports,omitempty"`
+	TemplateTags       string                  `json:"templateTags,omitempty"`
+	CloudCandidates    []CloudStorageCandidate `json:"cloudCandidates,omitempty"`
+	RedirectCandidates []RedirectCandidate     `json:"redirectCandidates,omitempty"`
+}
+
+// RedirectCandidate is a URL the control plane found with a query parameter name matching a
+// known open-redirect pattern. Parameter is the exact query parameter to overwrite with the
+// probe's canary value; the worker never guesses a parameter name beyond this.
+type RedirectCandidate struct {
+	URL       string `json:"url"`
+	Parameter string `json:"parameter"`
 }
 
 // CloudStorageCandidate is an in-scope host whose CNAME the control plane matched against a
@@ -165,6 +174,39 @@ type Record struct {
 	Content *ContentInfo `json:"content,omitempty"`
 	// CLOUD_STORAGE
 	CloudStorage *CloudStorageInfo `json:"cloudStorage,omitempty"`
+	// CORS_MISCONFIGURATION
+	Cors *CorsInfo `json:"cors,omitempty"`
+	// OPEN_REDIRECT
+	OpenRedirect *OpenRedirectInfo `json:"openRedirect,omitempty"`
+}
+
+// CorsInfo is the result of probing an in-scope origin with a crafted, arbitrary Origin header.
+// TestedOrigin is the exact value sent; AllowOrigin is the raw Access-Control-Allow-Origin value
+// observed in the response. NOT_VULNERABLE is recorded (not omitted) so the check's coverage is
+// auditable.
+type CorsInfo struct {
+	Status           string  `json:"status"`
+	Confidence       float64 `json:"confidence"`
+	AllowOrigin      string  `json:"allowOrigin"`
+	AllowCredentials bool    `json:"allowCredentials"`
+	TestedOrigin     string  `json:"testedOrigin"`
+	HTTPStatus       *int    `json:"httpStatus"`
+	Evidence         string  `json:"evidence"`
+	EvidenceType     string  `json:"evidenceType"`
+}
+
+// OpenRedirectInfo is the result of overwriting one query parameter on an in-scope URL with an
+// externally-controlled canary value and checking whether the response redirects there.
+// NOT_VULNERABLE is recorded (not omitted) so the check's coverage is auditable.
+type OpenRedirectInfo struct {
+	TestedURL    string  `json:"testedUrl"`
+	Parameter    string  `json:"parameter"`
+	Status       string  `json:"status"`
+	Confidence   float64 `json:"confidence"`
+	HTTPStatus   *int    `json:"httpStatus"`
+	Location     string  `json:"location"`
+	Evidence     string  `json:"evidence"`
+	EvidenceType string  `json:"evidenceType"`
 }
 
 // CloudStorageInfo is the result of checking whether a CNAME-fronted bucket is publicly
@@ -445,6 +487,8 @@ const (
 	TypeTemplateFinding    = "TEMPLATE_FINDING"
 	TypeContentDiscovery   = "CONTENT_DISCOVERY"
 	TypeCloudStorage       = "CLOUD_STORAGE"
+	TypeCorsMisconfig      = "CORS_MISCONFIGURATION"
+	TypeOpenRedirect       = "OPEN_REDIRECT"
 )
 
 // Login-interface kinds and statuses. DETECTED means a concrete marker was observed; POSSIBLE

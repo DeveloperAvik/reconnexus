@@ -280,6 +280,96 @@ export function cloudStorageFindings(rows: readonly CloudStorageFindingInput[]):
   return findings;
 }
 
+export interface CorsFindingInput {
+  url: string;
+  host: string;
+  status: string;
+  confidence: number;
+  allowOrigin: string;
+  allowCredentials: boolean;
+  testedOrigin: string;
+  httpStatus: number | null;
+  evidence: string;
+}
+
+/**
+ * Only an origin that reflects the probe's arbitrary Origin becomes a finding. Reflection with
+ * `Access-Control-Allow-Credentials: true` is HIGH (any origin can read authenticated
+ * responses); reflection alone is MEDIUM. NOT_VULNERABLE stays inventory.
+ */
+export function corsFindings(rows: readonly CorsFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    if (r.status === "NOT_VULNERABLE") continue;
+    const id = findingId(["cors", r.url]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const withCredentials = r.status === "REFLECTS_ARBITRARY_ORIGIN_WITH_CREDENTIALS";
+    findings.push({
+      id,
+      title: `CORS reflects an arbitrary Origin${withCredentials ? " with credentials" : ""} at ${r.url}`,
+      category: "CORS_MISCONFIGURATION",
+      severity: withCredentials ? "HIGH" : "MEDIUM",
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "19-cors-redirect",
+      sourceKind: "cors",
+      evidence: `HTTP ${r.httpStatus}; ${r.evidence} (tested Origin: ${r.testedOrigin})`,
+      evidenceRefs: [r.url],
+      remediation: withCredentials
+        ? "Validate the Origin header against an explicit allowlist before reflecting it, and never combine a reflected or wildcard origin with Access-Control-Allow-Credentials: true."
+        : "Validate the Origin header against an explicit allowlist before reflecting it in Access-Control-Allow-Origin, even without credentialed access.",
+      references: ["https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/07-Testing_Cross_Origin_Resource_Sharing"],
+    });
+  }
+  return findings;
+}
+
+export interface OpenRedirectFindingInput {
+  url: string;
+  testedUrl: string;
+  host: string;
+  parameter: string;
+  status: string;
+  confidence: number;
+  httpStatus: number | null;
+  location: string;
+  evidence: string;
+}
+
+/**
+ * Only a CONFIRMED redirect (the response actually redirected to the injected canary value)
+ * becomes a finding. NOT_VULNERABLE stays inventory.
+ */
+export function openRedirectFindings(rows: readonly OpenRedirectFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    if (r.status !== "CONFIRMED") continue;
+    const id = findingId(["open-redirect", r.host, r.parameter]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    findings.push({
+      id,
+      title: `Open redirect via "${r.parameter}" parameter at ${r.url}`,
+      category: "OPEN_REDIRECT",
+      severity: "MEDIUM",
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "19-cors-redirect",
+      sourceKind: "open-redirect",
+      evidence: `HTTP ${r.httpStatus}; ${r.evidence} (Location: ${r.location})`,
+      evidenceRefs: [r.url, `param:${r.parameter}`],
+      remediation: `Validate the "${r.parameter}" redirect target against an explicit allowlist of in-application paths or domains before issuing the redirect.`,
+      references: ["https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/04-Testing_for_Client-side_URL_Redirect"],
+    });
+  }
+  return findings;
+}
+
 export interface ContentFindingInput {
   url: string;
   host: string;
@@ -451,7 +541,7 @@ export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportT
  * of the persisted rows drifting apart.
  */
 export async function loadScanFindings(repo: Repository, scanId: string): Promise<ReportFinding[]> {
-  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows] = await Promise.all([
+  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows, corsRows, redirectRows] = await Promise.all([
     repo.listSecretFindings(scanId),
     repo.listTakeoverCandidates(scanId),
     repo.listSecurityMetadata(scanId, 5000),
@@ -459,6 +549,8 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     repo.listPortObservations(scanId),
     repo.listContentDiscoveries(scanId),
     repo.listCloudStorageFindings(scanId),
+    repo.listCorsFindings(scanId),
+    repo.listOpenRedirectFindings(scanId),
   ]);
 
   const secretFindings: ReportSecretFinding[] = secretRows
@@ -535,11 +627,23 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     return { url: r.url, host: d.host ?? "", cloudProvider: d.cloudProvider ?? "", bucket: d.bucket ?? "", status: d.status ?? "INCONCLUSIVE", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, objectCount: d.objectCount ?? 0, evidence: d.evidence ?? "" };
   });
 
+  const corsInputs: CorsFindingInput[] = corsRows.map((r) => {
+    const d = r.data as Partial<CorsFindingInput>;
+    return { url: r.url, host: d.host ?? "", status: d.status ?? "NOT_VULNERABLE", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, allowOrigin: d.allowOrigin ?? "", allowCredentials: d.allowCredentials ?? false, testedOrigin: d.testedOrigin ?? "", httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, evidence: d.evidence ?? "" };
+  });
+
+  const redirectInputs: OpenRedirectFindingInput[] = redirectRows.map((r) => {
+    const d = r.data as Partial<OpenRedirectFindingInput>;
+    return { url: r.url, testedUrl: d.testedUrl ?? "", host: d.host ?? "", parameter: d.parameter ?? "", status: d.status ?? "NOT_VULNERABLE", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, location: d.location ?? "", evidence: d.evidence ?? "" };
+  });
+
   return buildFindings(secretFindings, takeoverCandidates, [
     ...insecureCookieFindings(securityFindingInputs),
     ...templateFindings(templateInputs),
     ...contentFindings(contentInputs),
     ...cloudStorageFindings(cloudInputs),
+    ...corsFindings(corsInputs),
+    ...openRedirectFindings(redirectInputs),
     ...exposedServiceFindings(portInputs),
   ]);
 }

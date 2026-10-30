@@ -29,6 +29,8 @@ export const Capability = {
   CONTENT_DISCOVERY: "CONTENT_DISCOVERY",
   /** Checking whether a CNAME-fronted cloud storage bucket on an in-scope host is publicly listable. */
   CLOUD_STORAGE_CHECK: "CLOUD_STORAGE_CHECK",
+  /** Reflective-CORS and open-redirect probing of in-scope origins/URLs already observed. */
+  CORS_REDIRECT_CHECK: "CORS_REDIRECT_CHECK",
   /**
    * Permission to reach private/loopback/link-local/metadata address space.
    * This is a distinct, high-risk capability and is never implied by others.
@@ -52,6 +54,7 @@ export const ActiveCapabilities: ReadonlySet<CapabilityValue> = new Set([
   Capability.PORT_SCAN,
   Capability.CONTENT_DISCOVERY,
   Capability.CLOUD_STORAGE_CHECK,
+  Capability.CORS_REDIRECT_CHECK,
   Capability.DNS,
 ]);
 

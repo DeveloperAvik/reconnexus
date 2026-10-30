@@ -3,4 +3,4 @@ export * from "./orchestrator.js";
 export * from "./outcome-policy.js";
 export * from "./types.js";
 export * from "./profiles.js";
-export { cloudStorageCandidateFor } from "./stage-config.js";
+export { cloudStorageCandidateFor, openRedirectCandidateFor } from "./stage-config.js";

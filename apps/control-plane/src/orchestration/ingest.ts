@@ -234,6 +234,8 @@ export function reliabilityFor(source: string, score?: number): SourceReliabilit
     case "builtin-content":
     case "cloud-storage":
     case "builtin-cloud-storage":
+    case "cors-redirect":
+    case "builtin-cors-redirect":
       return "HIGH";
     default:
       return "LOW";
@@ -474,6 +476,40 @@ export async function ingestDiscoveryResult(
       const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
       await upsertRelationship(db, { projectId, fromAssetId: hostAssetId, toAssetId: urlId, relation: "contains_url", confidence: 0.8, source: rec.provider });
       summary.relationships++;
+      return;
+    }
+    if (rec.type === "CORS_MISCONFIGURATION") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("cors-redirect"), "cors", {
+        host: rec.host,
+        url: rec.url,
+        status: rec.status,
+        confidence: rec.confidence,
+        allowOrigin: rec.allowOrigin,
+        allowCredentials: rec.allowCredentials,
+        testedOrigin: rec.testedOrigin,
+        httpStatus: rec.httpStatus,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      return;
+    }
+    if (rec.type === "OPEN_REDIRECT") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("cors-redirect"), "open-redirect", {
+        host: rec.host,
+        url: rec.url,
+        testedUrl: rec.testedUrl,
+        parameter: rec.parameter,
+        status: rec.status,
+        confidence: rec.confidence,
+        httpStatus: rec.httpStatus,
+        location: rec.location,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
       return;
     }
     if (rec.type === "PORT_OBSERVATION") {

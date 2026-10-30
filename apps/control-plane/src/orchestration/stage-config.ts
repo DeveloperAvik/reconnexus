@@ -19,6 +19,7 @@ export const IMPLEMENTED_STAGES = new Set<string>([
   StageId.LOGIN_FINDER,
   StageId.CONTENT_DISCOVERY,
   StageId.CLOUD_STORAGE,
+  StageId.CORS_REDIRECT,
   StageId.REPORTING,
 ]);
 
@@ -38,6 +39,7 @@ export const DEFAULT_PROVIDERS: Record<DiscoveryJobKindValue, string[]> = {
   LOGIN_FINDER: ["builtin-login-finder"],
   CONTENT_DISCOVERY: ["builtin-content"],
   CLOUD_STORAGE: ["builtin-cloud-storage"],
+  CORS_REDIRECT: ["builtin-cors-redirect"],
 };
 
 export const MAX_NAMES = 1000;
@@ -63,6 +65,45 @@ export const MAX_LOGIN_ORIGINS = 25;
 export const MAX_CONTENT_ORIGINS = 25;
 /** CNAME-derived candidates the cloud-storage stage may check in one scan. */
 export const MAX_CLOUD_STORAGE_CANDIDATES = 25;
+/** Origins the CORS reflection probe may check in one scan. */
+export const MAX_CORS_TARGETS = 50;
+/** Open-redirect-shaped URLs the open-redirect probe may check in one scan. */
+export const MAX_REDIRECT_CANDIDATES = 50;
+
+/**
+ * Query parameter names commonly used to carry a post-action redirect target. Matching is
+ * case-insensitive and exact (no substring matching), to keep the candidate list precise.
+ */
+const REDIRECT_PARAMETER_NAMES = new Set([
+  "redirect", "redirect_uri", "redirecturl", "redirect_url", "redirect_to",
+  "return", "returnurl", "return_url", "returnto", "return_to",
+  "next", "nexturl", "next_url",
+  "continue", "continueurl", "continue_url",
+  "dest", "destination", "redir",
+  "checkout_url", "success_url", "successurl",
+  "callback", "callback_url", "forward", "forward_url",
+  "login_url", "logout_url", "target", "url", "u", "link", "rurl", "navigate", "goto", "out", "view",
+]);
+
+/**
+ * Checks a URL's query string for the first parameter whose name matches a known open-redirect
+ * pattern and has a non-empty value. The worker never guesses a parameter name beyond what this
+ * returns, so a false negative here only means the URL isn't tested, never a false positive.
+ */
+export function openRedirectCandidateFor(rawUrl: string): { parameter: string } | null {
+  let u: URL;
+  try {
+    u = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  for (const [name, value] of u.searchParams) {
+    if (value && REDIRECT_PARAMETER_NAMES.has(name.toLowerCase())) {
+      return { parameter: name };
+    }
+  }
+  return null;
+}
 
 /**
  * Derives a best-effort bucket name from a CNAME target that fronts a cloud storage bucket on a
