@@ -10,7 +10,8 @@ import type { Repository } from "../repository.js";
  * the detector's confidence as persisted, and `validation` states how far the evidence goes. The
  * three are independent dimensions and are reported separately, never collapsed into one score.
  *
- * Only secret candidates (Stage 09) and takeover candidates (Stage 13) become findings. Security
+ * Secret candidates (Stage 09), takeover candidates (Stage 13), non-INFO template matches (Stage 16)
+ * and open ports on an exposure list (Stage 15, `OBSERVED` only) become findings. Security
  * metadata, technologies, URLs and endpoints are *discovered assets and observations*, reported as
  * inventory — turning an absent header into a "finding" would present a single response at a point
  * in time as a confirmed weakness.
@@ -185,6 +186,197 @@ export function insecureCookieFindings(rows: readonly SecurityMetadataFindingInp
   return findings;
 }
 
+export interface TemplateFindingInput {
+  url: string;
+  host: string;
+  templateId: string;
+  name: string;
+  severity: string;
+  description: string;
+  tags: string[];
+  references: string[];
+  matcherName: string;
+  extracted: string[];
+  confidence: number;
+}
+
+/**
+ * Template matches become findings except INFO-rated ones, which are technology/detection hits and
+ * stay inventory (observations), like other single-response observations. Severity is the template
+ * author's rating if the match is real, capped at HIGH: a signature match is never validated.
+ */
+export function templateFindings(rows: readonly TemplateFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    if (r.severity === "INFO") continue;
+    const id = findingId(["template", r.templateId, r.url, r.matcherName]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    findings.push({
+      id,
+      title: `${r.name || r.templateId} (${r.templateId}) at ${r.url}`,
+      category: "TEMPLATE_MATCH",
+      severity: r.severity === "CRITICAL" ? "HIGH" : r.severity,
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "16-template-checks",
+      sourceKind: "template-finding",
+      evidence: [r.description, r.extracted.length > 0 ? `extracted: ${r.extracted.join(", ")}` : ""].filter((x) => x.length > 0).join(" | "),
+      evidenceRefs: [r.url, `template:${r.templateId}`, ...(r.matcherName ? [`matcher:${r.matcherName}`] : [])],
+      remediation:
+        "Confirm the match manually, then fix or remove the exposed resource or misconfiguration the template describes. A template match is a signature detection and can be a false positive.",
+      references: r.references,
+    });
+  }
+  return findings;
+}
+
+export interface ContentFindingInput {
+  url: string;
+  host: string;
+  path: string;
+  category: string;
+  status: string;
+  severity: string;
+  confidence: number;
+  httpStatus: number;
+  evidence: string;
+}
+
+const CONTENT_REMEDIATION: Record<string, string> = {
+  VCS: "Remove version-control metadata from the web root and block access to dot-directories; assume any secrets in the repository history are compromised and rotate them.",
+  CONFIG: "Remove the file from the web root, deny access to configuration files at the web server, and rotate any credentials it contained.",
+  BACKUP: "Remove backups and database dumps from the web root, store them off-server, and rotate credentials that appear in them.",
+  DEBUG: "Disable the debug or management endpoint in production, or restrict it to administrators behind authentication and a network control.",
+  LOG: "Move logs out of the web root and deny direct access; review them for credentials and personal data.",
+  DIRECTORY_LISTING: "Disable directory indexing (for example `Options -Indexes` or `autoindex off`) and review the listed files.",
+};
+
+/**
+ * Content-discovery hits become findings only when there is evidence of exposure: a CONFIRMED hit
+ * (content marker or directory index) at LOW or above, or a POSSIBLE hit rated MEDIUM or above.
+ * INFO hits (access-denied paths, metadata files) and weak LOW possibilities stay inventory.
+ * Severity is the worker's rating if the exposure is real; nothing here is validated.
+ */
+export function contentFindings(rows: readonly ContentFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    const actionable = r.severity !== "INFO" && (r.status === "CONFIRMED" || r.severity === "MEDIUM" || r.severity === "HIGH");
+    if (!actionable) continue;
+    const id = findingId(["content", r.url]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    findings.push({
+      id,
+      title: `${r.status === "CONFIRMED" ? "Exposed" : "Possibly exposed"} ${r.category.toLowerCase().replace("_", " ")} content at ${r.url}`,
+      category: "EXPOSED_CONTENT",
+      severity: r.severity,
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "17-content-discovery",
+      sourceKind: "content-discovery",
+      evidence: `HTTP ${r.httpStatus}; ${r.evidence}`,
+      evidenceRefs: [r.url, `path:${r.path}`],
+      remediation: CONTENT_REMEDIATION[r.category] ?? "Remove or restrict the exposed resource. Confirm manually first: this is an automated, path-based detection.",
+      references: ["https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/02-Configuration_and_Deployment_Management_Testing/04-Review_Old_Backup_and_Unreferenced_Files_for_Sensitive_Information"],
+    });
+  }
+  return findings;
+}
+
+interface ExposureRule {
+  label: string;
+  severity: string;
+  remediation: string;
+}
+
+const DB_REMEDIATION = "Restrict the port to the application tier with a firewall or security group, require authentication and TLS, and never expose it to the internet.";
+
+/** Ports whose public exposure is normally unintended. Severity is the impact if exposure is unintended. */
+const EXPOSURE_RULES: Record<number, ExposureRule> = {
+  21: { label: "FTP", severity: "MEDIUM", remediation: "Replace FTP with SFTP/FTPS and restrict access, or close the port if unused." },
+  23: { label: "Telnet", severity: "HIGH", remediation: "Disable Telnet and use SSH; Telnet sends credentials in clear text." },
+  111: { label: "RPC portmapper", severity: "MEDIUM", remediation: "Block rpcbind from the internet; it discloses service details and aids amplification." },
+  135: { label: "MS-RPC", severity: "MEDIUM", remediation: "Block Windows RPC from the internet." },
+  139: { label: "NetBIOS", severity: "MEDIUM", remediation: "Block NetBIOS from the internet." },
+  445: { label: "SMB", severity: "HIGH", remediation: "Block SMB from the internet and patch the host; exposed SMB has a long history of wormable flaws." },
+  1433: { label: "Microsoft SQL Server", severity: "HIGH", remediation: DB_REMEDIATION },
+  1521: { label: "Oracle database", severity: "HIGH", remediation: DB_REMEDIATION },
+  2049: { label: "NFS", severity: "MEDIUM", remediation: "Restrict NFS exports to internal hosts." },
+  2375: { label: "Docker API (unencrypted)", severity: "HIGH", remediation: "Do not expose the Docker daemon over TCP without TLS client authentication; unauthenticated access is host takeover." },
+  2376: { label: "Docker API (TLS)", severity: "MEDIUM", remediation: "Confirm mutual TLS is enforced and restrict the port to administrators." },
+  3306: { label: "MySQL/MariaDB", severity: "HIGH", remediation: DB_REMEDIATION },
+  3389: { label: "RDP", severity: "HIGH", remediation: "Put RDP behind a VPN or gateway with MFA and network-level authentication." },
+  5432: { label: "PostgreSQL", severity: "HIGH", remediation: DB_REMEDIATION },
+  5601: { label: "Kibana", severity: "MEDIUM", remediation: "Place Kibana behind authentication and a VPN or proxy." },
+  5672: { label: "AMQP broker", severity: "LOW", remediation: "Restrict broker access to application hosts." },
+  5900: { label: "VNC", severity: "HIGH", remediation: "Do not expose VNC directly; tunnel it over SSH or a VPN." },
+  5985: { label: "WinRM (HTTP)", severity: "MEDIUM", remediation: "Restrict WinRM to management networks." },
+  6379: { label: "Redis", severity: "HIGH", remediation: DB_REMEDIATION },
+  6443: { label: "Kubernetes API", severity: "MEDIUM", remediation: "Restrict API-server access to trusted networks and disable anonymous access." },
+  9042: { label: "Cassandra", severity: "HIGH", remediation: DB_REMEDIATION },
+  9200: { label: "Elasticsearch", severity: "HIGH", remediation: DB_REMEDIATION },
+  9300: { label: "Elasticsearch transport", severity: "HIGH", remediation: DB_REMEDIATION },
+  10250: { label: "Kubelet API", severity: "HIGH", remediation: "Disable anonymous kubelet access and restrict the port to the control plane." },
+  11211: { label: "Memcached", severity: "HIGH", remediation: "Do not expose Memcached; it has no authentication and is abused for amplification." },
+  15672: { label: "RabbitMQ management", severity: "MEDIUM", remediation: "Restrict the management UI to administrators and change default credentials." },
+  27017: { label: "MongoDB", severity: "HIGH", remediation: DB_REMEDIATION },
+};
+
+export interface PortFindingInput {
+  host: string;
+  ip: string;
+  port: number;
+  protocol: string;
+  state: string;
+  service: string;
+  product: string;
+  version: string;
+}
+
+/**
+ * An open port from the exposure list becomes an `OBSERVED` finding: a TCP connection was accepted,
+ * which is a fact, but whether the service is intended to be public, authenticated or vulnerable is
+ * not established. One finding per address and port, not per host name that reaches it.
+ */
+export function exposedServiceFindings(rows: readonly PortFindingInput[]): ReportFinding[] {
+  const byKey = new Map<string, { row: PortFindingInput; hosts: Set<string> }>();
+  for (const r of rows) {
+    if (r.state !== "OPEN" || r.protocol !== "tcp" || !(r.port in EXPOSURE_RULES)) continue;
+    const key = `${r.ip}:${r.port}`;
+    const entry = byKey.get(key) ?? { row: r, hosts: new Set<string>() };
+    entry.hosts.add(r.host);
+    byKey.set(key, entry);
+  }
+  return Array.from(byKey.values()).map(({ row, hosts }) => {
+    const rule = EXPOSURE_RULES[row.port]!;
+    const detail = [row.product, row.version].filter((x) => x.length > 0).join(" ");
+    return {
+      id: findingId(["exposed-service", row.ip, String(row.port)]),
+      title: `${rule.label} reachable on ${row.ip}:${row.port}/tcp`,
+      category: "EXPOSED_SERVICE",
+      severity: rule.severity,
+      confidence: 0.9,
+      validation: "OBSERVED",
+      subject: sortedHosts(hosts)[0] ?? row.ip,
+      sourceStage: "15-port-scan",
+      sourceKind: "port-observation",
+      evidence: `TCP connection accepted on ${row.ip}:${row.port}${detail ? ` (service detection: ${detail})` : ""}; reached via ${sortedHosts(hosts).join(", ")}`,
+      evidenceRefs: [`${row.ip}:${row.port}/tcp`, ...sortedHosts(hosts)],
+      remediation: rule.remediation,
+      references: [],
+    };
+  });
+}
+
+function sortedHosts(hosts: Set<string>): string[] {
+  return Array.from(hosts).sort();
+}
+
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
 
 /**
@@ -212,10 +404,13 @@ export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportT
  * of the persisted rows drifting apart.
  */
 export async function loadScanFindings(repo: Repository, scanId: string): Promise<ReportFinding[]> {
-  const [secretRows, takeoverRows, securityMetaRows] = await Promise.all([
+  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows] = await Promise.all([
     repo.listSecretFindings(scanId),
     repo.listTakeoverCandidates(scanId),
     repo.listSecurityMetadata(scanId, 5000),
+    repo.listTemplateFindings(scanId),
+    repo.listPortObservations(scanId),
+    repo.listContentDiscoveries(scanId),
   ]);
 
   const secretFindings: ReportSecretFinding[] = secretRows
@@ -261,7 +456,38 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     };
   });
 
-  return buildFindings(secretFindings, takeoverCandidates, insecureCookieFindings(securityFindingInputs));
+  const templateInputs: TemplateFindingInput[] = templateRows.map((r) => {
+    const d = r.data as Partial<TemplateFindingInput>;
+    return {
+      url: r.url,
+      host: d.host ?? "",
+      templateId: d.templateId ?? "unknown",
+      name: d.name ?? "",
+      severity: d.severity ?? "INFO",
+      description: d.description ?? "",
+      tags: d.tags ?? [],
+      references: d.references ?? [],
+      matcherName: d.matcherName ?? "",
+      extracted: d.extracted ?? [],
+      confidence: typeof d.confidence === "number" ? d.confidence : 0.5,
+    };
+  });
+  const portInputs: PortFindingInput[] = portRows.map((r) => {
+    const d = r.data as Partial<PortFindingInput>;
+    return { host: d.host ?? "", ip: d.ip ?? "", port: d.port ?? 0, protocol: d.protocol ?? "tcp", state: d.state ?? "", service: d.service ?? "", product: d.product ?? "", version: d.version ?? "" };
+  });
+
+  const contentInputs: ContentFindingInput[] = contentRows.map((r) => {
+    const d = r.data as Partial<ContentFindingInput>;
+    return { url: r.url, host: d.host ?? "", path: d.path ?? "", category: d.category ?? "", status: d.status ?? "POSSIBLE", severity: d.severity ?? "INFO", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: d.httpStatus ?? 0, evidence: d.evidence ?? "" };
+  });
+
+  return buildFindings(secretFindings, takeoverCandidates, [
+    ...insecureCookieFindings(securityFindingInputs),
+    ...templateFindings(templateInputs),
+    ...contentFindings(contentInputs),
+    ...exposedServiceFindings(portInputs),
+  ]);
 }
 
 /** Counts by severity and validation. Always includes every key, so zero is explicit. */

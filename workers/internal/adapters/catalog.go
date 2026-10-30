@@ -29,6 +29,7 @@ var Catalog = []Provider{
 	{Name: "gau", Binary: "gau", VersionArgs: []string{"--version"}, Capabilities: []string{"PASSIVE"}, NetworkBehavior: "PASSIVE", SupportsCancel: true},
 	{Name: "waybackurls", Binary: "waybackurls", VersionArgs: nil, Capabilities: []string{"PASSIVE"}, NetworkBehavior: "PASSIVE", SupportsCancel: true},
 	{Name: "mapcidr", Binary: "mapcidr", VersionArgs: []string{"-version"}, Capabilities: []string{"PASSIVE"}, NetworkBehavior: "NONE", SupportsCancel: true},
+	{Name: "nmap", Binary: "nmap", VersionArgs: []string{"--version"}, Capabilities: []string{"PORT_SCAN"}, NetworkBehavior: "ACTIVE", SupportsCancel: true},
 	{Name: "nuclei", Binary: "nuclei", VersionArgs: []string{"-version"}, Capabilities: []string{"SECURITY_CHECKS", "ACTIVE_TEMPLATE_CHECK"}, NetworkBehavior: "ACTIVE_TEMPLATE", SupportsCancel: true},
 }
 

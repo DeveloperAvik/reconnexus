@@ -17,10 +17,12 @@ import {
 import { Repository, type JobRow, type ScanRow } from "../repository.js";
 import { ingestDiscoveryResult, recordProviderExecution, upsertAsset, insertObservation, upsertCoverageInternal, upsertProviderOutcome, upsertRelationship, sha256Hex } from "./ingest.js";
 import { buildReport, redactReport, ReportRedactionError, type Redactor } from "../reporting/report.js";
+import { runTargetIntelligence, runUrlCategorization, type DerivedStageContext } from "./derived-stages.js";
+import { applyProfileLimits, profileFromSnapshot, type ScanProfile } from "./profiles.js";
 import { dependenciesSatisfied, deriveScanStatus } from "./scan-status.js";
 import { NON_RETRYABLE_SETTLED, aggregate, coverageStatusFor, countRecordsByType, fingerprintCorrelationStatus, isRetryableProviderOutcome, shouldRetryStage } from "./outcome-policy.js";
 import type { OrchestratorDeps, OrchestratorEvent, ProviderOutcomeSummary, ScanRunSummary } from "./types.js";
-import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CORR_EDGES, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, defaultSleep, looksLikeJs, looksLikeSpec, originOfUrl, sorted } from "./stage-config.js";
+import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PORT_SCAN_ADDRESSES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, defaultSleep, looksLikeJs, looksLikeSpec, originOfUrl, sorted } from "./stage-config.js";
 
 /**
  * ScanOrchestrator executes the implemented Phase 2 stages. It persists results through the
@@ -43,6 +45,8 @@ export class ScanOrchestrator {
    * call, so a later explicit resume still re-evaluates them (e.g. a tool that has since been installed).
    */
   private settledProviders = new Map<string, ProviderOutcomeSummary>();
+  /** The scan profile recorded when the scan was planned; null for a scan created without one. */
+  private activeProfile: ScanProfile | null = null;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.repo = new Repository(deps.db);
@@ -62,6 +66,7 @@ export class ScanOrchestrator {
     if (scan.status === JobStatus.CANCELLED) {
       return this.summary(scan, []);
     }
+    this.activeProfile = profileFromSnapshot(scan.config_snapshot);
     await this.repo.updateScanStatus(scanId, JobStatus.RUNNING);
 
     // Resume: re-queue failed jobs that still have attempts remaining.
@@ -189,8 +194,8 @@ export class ScanOrchestrator {
   private profile(): string {
     const overrides = this.deps.providerOverrides ?? {};
     const overridden = Object.keys(overrides).filter((k) => (overrides as Record<string, string[] | undefined>)[k]?.length);
-    if (overridden.length === 0 && this.deps.maxAttempts === undefined) return "default";
-    return "custom";
+    if (overridden.length === 0 && this.deps.maxAttempts === undefined) return this.activeProfile?.name ?? "default";
+    return this.activeProfile ? `${this.activeProfile.name}+custom` : "custom";
   }
 
   private emitEvent(event: OrchestratorEvent): void {
@@ -261,17 +266,19 @@ export class ScanOrchestrator {
   private async executeStage(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
     switch (job.stage) {
       case StageId.TARGET_INTELLIGENCE:
-        return this.runTargetIntelligence(scan, job);
+        return runTargetIntelligence(this.derivedContext(), scan, job);
       case StageId.SUBDOMAIN_DISCOVERY:
         return this.runSubdomainDiscovery(scan, job, policy);
       case StageId.DNS_INFRA:
         return this.runDnsInfra(scan, job, policy);
+      case StageId.PORT_SCAN:
+        return this.runPortScan(scan, job, policy);
       case StageId.HTTP_PROBE:
         return this.runHttpProbe(scan, job, policy);
       case StageId.URL_COLLECTION:
         return this.runUrlCollection(scan, job, policy);
       case StageId.URL_CATEGORIZATION:
-        return this.runUrlCategorization(scan, job);
+        return runUrlCategorization(this.derivedContext(), scan, job);
       case StageId.JS_INTELLIGENCE:
         return this.runJsIntelligence(scan, job, policy);
       case StageId.API_DISCOVERY:
@@ -284,6 +291,10 @@ export class ScanOrchestrator {
         return this.runLoginFinder(scan, job, policy);
       case StageId.SECURITY_CHECKS:
         return this.runSecurityChecks(scan, job, policy);
+      case StageId.TEMPLATE_CHECKS:
+        return this.runTemplateChecks(scan, job, policy);
+      case StageId.CONTENT_DISCOVERY:
+        return this.runContentDiscovery(scan, job, policy);
       case StageId.CORRELATION:
         return this.runCorrelation(scan, job);
       case StageId.REPORTING:
@@ -509,38 +520,6 @@ export class ScanOrchestrator {
   }
 
   /**
-   * Stage 06 — URL categorization. Classification is computed during URL collection (stage 05);
-   * this stage materializes the categorization dimension as coverage and confirms every discovered
-   * URL carries at least one classification. It performs no network requests.
-   */
-  private async runUrlCategorization(scan: ScanRow, job: JobRow): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
-    const rows = await this.repo.listUrlObservations(scan.id);
-    const total = rows.length;
-    let classified = 0;
-    const byCategory: Record<string, number> = {};
-    for (const r of rows) {
-      const cats = (r.data as { classifications?: Array<{ category: string }> }).classifications ?? [];
-      if (cats.length > 0) classified++;
-      for (const c of cats) byCategory[c.category] = (byCategory[c.category] ?? 0) + 1;
-    }
-    const status = total === 0 ? JobStatus.SKIPPED : classified === total ? JobStatus.SUCCEEDED : JobStatus.PARTIAL;
-    const cov = total === 0 ? "NOT_ATTEMPTED" : classified === total ? "COLLECTED" : "PARTIAL";
-    await this.deps.db.withTransaction((c) =>
-      upsertCoverageInternal(c, {
-        scanId: scan.id,
-        projectId: scan.project_id,
-        stage: job.stage,
-        status: cov,
-        expected: total,
-        collected: classified,
-        notes: total === 0 ? "no URLs to categorize" : `${classified}/${total} URLs classified`,
-        details: { byCategory, ...this.stageTiming(job.stage) },
-      }),
-    );
-    return { status, providers: [] };
-  }
-
-  /**
    * Stage 13 — non-destructive subdomain-takeover detection. Seeds the discovered in-scope
    * subdomains; the worker resolves each CNAME, matches a takeover-prone service, and issues one
    * bounded HTTP request to look for that service's unclaimed marker. Candidate-only.
@@ -561,6 +540,37 @@ export class ScanOrchestrator {
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes);
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 15 — TCP port scan and service identification. Runs only for the addresses that DNS
+   * resolved from in-scope hosts (a discovered IP is never an authorized target by itself), and
+   * only when the policy grants PORT_SCAN. The worker re-checks both before sending a packet.
+   */
+  private async runPortScan(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("PORT_SCAN")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "PORT_SCAN capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "PORT_SCAN not authorized" };
+    }
+    const pairs = (await this.repo.listResolvedIpHostPairs(scan.project_id, MAX_PORT_SCAN_ADDRESSES * 4))
+      .filter((p) => p.host === scan.root_domain || p.host.endsWith(`.${scan.root_domain}`))
+      .slice(0, MAX_PORT_SCAN_ADDRESSES);
+    if (pairs.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no resolved addresses of in-scope hosts to scan" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no addresses" };
+    }
+    const ports = this.deps.portScanPorts ?? this.activeProfile?.ports;
+    const inputs = {
+      addresses: pairs.map((p) => ({ ip: p.ip, viaHost: p.host })),
+      ...(ports ? { ports } : {}),
+    };
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.PORT_SCAN)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.PORT_SCAN, provider, inputs }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { addresses: new Set(pairs.map((p) => p.ip)).size, ports: ports ?? "default" });
     return { status, providers: outcomes };
   }
 
@@ -592,6 +602,75 @@ export class ScanOrchestrator {
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes);
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 16 — template-based checks (nuclei) against the HTTP origins observed during probing.
+   * Only detection-oriented templates run (the worker always excludes intrusive, fuzzing,
+   * brute-force, default-login and out-of-band tags), and matches are candidates, never validated.
+   * The stage exists only when the policy grants ACTIVE_TEMPLATE_CHECK.
+   */
+  private async runTemplateChecks(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("ACTIVE_TEMPLATE_CHECK")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "ACTIVE_TEMPLATE_CHECK capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "ACTIVE_TEMPLATE_CHECK not authorized" };
+    }
+    const probes = await this.repo.listHttpObservations(scan.id);
+    const origins = new Set<string>();
+    for (const p of probes) {
+      if (p.probe_status === "OK" || p.probe_status === "OVERSIZED" || p.probe_status === "REDIRECT_DENIED") {
+        const o = originOfUrl(p.final_url || p.url);
+        if (o) origins.add(o);
+      }
+    }
+    const urls = sorted(origins).slice(0, MAX_TEMPLATE_TARGETS);
+    if (urls.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no eligible HTTP origins observed" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no origins" };
+    }
+    const templateTags = this.deps.templateTags ?? this.activeProfile?.templateTags;
+    const inputs = { urls, ...(templateTags ? { templateTags } : {}) };
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.TEMPLATE_CHECK)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.TEMPLATE_CHECK, provider, inputs }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { targets: urls.length, templateTags: templateTags ?? "default" });
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 17 — content discovery. Probes a short, fixed list of well-known sensitive paths (VCS
+   * metadata, environment files, backups, debug endpoints, directory listings) on the origins
+   * observed during HTTP probing. The worker calibrates each origin against random missing paths so
+   * wildcard routing is not reported, never persists response bodies, and the stage exists only
+   * when the policy grants CONTENT_DISCOVERY.
+   */
+  private async runContentDiscovery(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("CONTENT_DISCOVERY")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "CONTENT_DISCOVERY capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "CONTENT_DISCOVERY not authorized" };
+    }
+    const probes = await this.repo.listHttpObservations(scan.id);
+    const origins = new Set<string>();
+    for (const p of probes) {
+      if (p.probe_status === "OK" || p.probe_status === "OVERSIZED" || p.probe_status === "REDIRECT_DENIED") {
+        const o = originOfUrl(p.final_url || p.url);
+        if (o) origins.add(o);
+      }
+    }
+    const urls = sorted(origins).slice(0, MAX_CONTENT_ORIGINS);
+    if (urls.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no eligible HTTP origins observed" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no origins" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.CONTENT_DISCOVERY)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.CONTENT_DISCOVERY, provider, inputs: { urls } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { targets: urls.length });
     return { status, providers: outcomes };
   }
 
@@ -773,8 +852,8 @@ export class ScanOrchestrator {
     const inputs = {
       seedUrls,
       domains: [scan.root_domain],
-      crawlDepth: policy.limits.crawlDepth,
-      requestBudget: MAX_CRAWL_REQUESTS,
+      crawlDepth: applyProfileLimits(policy.limits, this.activeProfile).crawlDepth,
+      requestBudget: this.activeProfile?.crawlRequestBudget ?? MAX_CRAWL_REQUESTS,
     };
     const outcomes: ProviderOutcomeSummary[] = [];
     for (const provider of this.providersFor(DiscoveryJobKind.URL_COLLECTION)) {
@@ -814,18 +893,6 @@ export class ScanOrchestrator {
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes);
     return { status, providers: outcomes };
-  }
-
-  private async runTargetIntelligence(scan: ScanRow, job: JobRow): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
-    const now = this.now();
-    await this.deps.db.withTransaction(async (client) => {
-      const a = await upsertAsset(client, { projectId: scan.project_id, type: "DOMAIN", canonicalKey: scan.root_domain, value: scan.root_domain, seenAt: now });
-      if (a.inserted) this.totals.assetsCreated++;
-      await insertObservation(client, { projectId: scan.project_id, scanId: scan.id, assetId: a.id, source: "control-plane", sourceReliability: "AUTHORITATIVE", observedAt: now, kind: "target", data: { startUrl: scan.start_url, rootDomain: scan.root_domain } });
-      this.totals.observations++;
-      await upsertCoverageInternal(client, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "COLLECTED", expected: 1, collected: 1, notes: "root target recorded", details: this.stageTiming(job.stage) });
-    });
-    return { status: JobStatus.SUCCEEDED, providers: [] };
   }
 
   private providersFor(kind: DiscoveryJobKindValue): string[] {
@@ -957,7 +1024,7 @@ export class ScanOrchestrator {
       provider,
       policy,
       inputs,
-      limits: policy.limits,
+      limits: applyProfileLimits(policy.limits, this.activeProfile),
       allowRestrictedAddresses: this.deps.config.network.allowRestrictedAddresses,
       timeoutMs: innerTimeoutMs,
       maxRedirects: this.deps.config.network.maxRedirects,
@@ -1062,6 +1129,10 @@ export class ScanOrchestrator {
       finishedAt: finished.toISOString(),
       durationMs: Math.max(0, finished.getTime() - clock.startedMs),
     };
+  }
+
+  private derivedContext(): DerivedStageContext {
+    return { db: this.deps.db, repo: this.repo, now: () => this.now(), stageTiming: (stage) => this.stageTiming(stage), totals: this.totals };
   }
 
   private async reconcileScanStatus(scanId: string, scan: ScanRow): Promise<string> {

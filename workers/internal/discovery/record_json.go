@@ -38,6 +38,15 @@ func (r *Record) flatPayloads() []any {
 	if r.Login != nil {
 		out = append(out, r.Login)
 	}
+	if r.Port != nil {
+		out = append(out, r.Port)
+	}
+	if r.Template != nil {
+		out = append(out, r.Template)
+	}
+	if r.Content != nil {
+		out = append(out, r.Content)
+	}
 	return out
 }
 
@@ -59,6 +68,9 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	base.SecretScan = nil
 	base.Takeover = nil
 	base.Login = nil
+	base.Port = nil
+	base.Template = nil
+	base.Content = nil
 
 	baseBytes, err := json.Marshal(recordEnvelope(base))
 	if err != nil {
@@ -140,6 +152,17 @@ func (r *Record) normalize() {
 		}
 		if r.Endpoint.AuthSchemes == nil {
 			r.Endpoint.AuthSchemes = []string{}
+		}
+	}
+	if r.Template != nil {
+		if r.Template.Tags == nil {
+			r.Template.Tags = []string{}
+		}
+		if r.Template.References == nil {
+			r.Template.References = []string{}
+		}
+		if r.Template.Extracted == nil {
+			r.Template.Extracted = []string{}
 		}
 	}
 	if r.Security != nil && r.Security.Detail == nil {

@@ -23,6 +23,10 @@ export const Capability = {
   ACTIVE_TEMPLATE_CHECK: "ACTIVE_TEMPLATE_CHECK",
   /** Non-destructive subdomain-takeover detection (DNS + one bounded HTTP request). */
   TAKEOVER_CHECK: "TAKEOVER_CHECK",
+  /** TCP port scanning and service identification of in-scope hosts' resolved addresses. */
+  PORT_SCAN: "PORT_SCAN",
+  /** Read-only probing of a fixed list of well-known sensitive paths (backups, VCS, debug, listings). */
+  CONTENT_DISCOVERY: "CONTENT_DISCOVERY",
   /**
    * Permission to reach private/loopback/link-local/metadata address space.
    * This is a distinct, high-risk capability and is never implied by others.
@@ -43,6 +47,8 @@ export const ActiveCapabilities: ReadonlySet<CapabilityValue> = new Set([
   Capability.SECURITY_CHECKS,
   Capability.ACTIVE_TEMPLATE_CHECK,
   Capability.TAKEOVER_CHECK,
+  Capability.PORT_SCAN,
+  Capability.CONTENT_DISCOVERY,
   Capability.DNS,
 ]);
 

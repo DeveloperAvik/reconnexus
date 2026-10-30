@@ -9,6 +9,7 @@ import {
   ScanOrchestrator,
   ScanService,
   ScopeDeniedError,
+  UnknownProfileError,
   type CreateScanResult,
   type DiscoveryRunner,
   type OrchestratorEvent,
@@ -37,6 +38,7 @@ export interface ScanStartOptions {
   workspace?: string;
   allowRestricted?: boolean;
   run?: boolean;
+  profile?: string;
 }
 
 async function createScan(ctx: Context, startUrl: string, opts: ScanStartOptions): Promise<CreateScanResult> {
@@ -49,6 +51,7 @@ async function createScan(ctx: Context, startUrl: string, opts: ScanStartOptions
       policy,
       ...(opts.workspace ? { workspaceName: opts.workspace } : {}),
       allowRestrictedAddresses: opts.allowRestricted ?? ctx.config.network.allowRestrictedAddresses,
+      ...(opts.profile ? { profile: opts.profile } : {}),
       configSnapshot: { configSchemaVersion: ctx.config.schemaVersion },
     });
   } finally {
@@ -68,6 +71,9 @@ export async function scanStartCommand(ctx: Context, startUrl: string, opts: Sca
         warnings: ["start URL rejected before any network execution"],
         render: () => `Scope denied:\n${formatDecision(err.decision)}`,
       });
+    }
+    if (err instanceof UnknownProfileError) {
+      throw new CliError(err.message, ExitCode.USAGE_ERROR, { profile: err.profile });
     }
     if (err instanceof InvalidTargetError) {
       throw new CliError(err.message, ExitCode.USAGE_ERROR, { url: err.url });
@@ -113,6 +119,11 @@ export interface ScanRunOptions {
   securityProviders?: string;
   secretProviders?: string;
   loginProviders?: string;
+  portProviders?: string;
+  templateProviders?: string;
+  templateTags?: string;
+  contentProviders?: string;
+  ports?: string;
   maxAttempts?: number;
 }
 
@@ -144,6 +155,9 @@ function buildOrchestrator(
   if (opts.securityProviders) overrides.SECURITY_META = splitList(opts.securityProviders);
   if (opts.secretProviders) overrides.SECRET_SCAN = splitList(opts.secretProviders);
   if (opts.loginProviders) overrides.LOGIN_FINDER = splitList(opts.loginProviders);
+  if (opts.portProviders) overrides.PORT_SCAN = splitList(opts.portProviders);
+  if (opts.templateProviders) overrides.TEMPLATE_CHECK = splitList(opts.templateProviders);
+  if (opts.contentProviders) overrides.CONTENT_DISCOVERY = splitList(opts.contentProviders);
   return new ScanOrchestrator({
     db,
     runner,
@@ -152,6 +166,8 @@ function buildOrchestrator(
     config: ctx.config,
     ...(Object.keys(overrides).length ? { providerOverrides: overrides as never } : {}),
     ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
+    ...(opts.ports ? { portScanPorts: opts.ports } : {}),
+    ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
     ...(signal ? { signal } : {}),
     ...(onEvent ? { onEvent } : {}),
   });

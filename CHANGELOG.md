@@ -6,6 +6,48 @@ planned functionality; entries only describe what is actually implemented and te
 
 ## [Unreleased]
 
+### Added
+
+- **Content discovery (stage `17-content-discovery`, `builtin-content` provider):** read-only probing of a
+  fixed list of ~90 high-signal paths (VCS metadata, `.env`/config files, backups and SQL dumps, debug and
+  management endpoints, logs, directory listings) on the observed HTTP origins. Opt-in via the new
+  `CONTENT_DISCOVERY` capability (migration `0007`), so existing policies keep their plan; the `quick` and
+  `stealth` profiles leave it out. Each origin is calibrated with random missing paths so wildcard routing and
+  soft-404 pages are not reported; HTML responses at non-HTML paths are rejected; redirects are inspected, not
+  followed. A hit is `CONFIRMED` only when a content marker (or a directory index) is present, otherwise
+  `POSSIBLE`. Response bodies are never stored and evidence names the marker, so an exposed secret file does
+  not leak into the store. Confirmed hits and MEDIUM+ possibilities become `SUSPECTED` `EXPOSED_CONTENT`
+  findings; access-denied and metadata hits stay inventory. New `content` command and `--content-providers`.
+  See `docs/architecture/content-discovery.md`.
+- **Template checks (stage `16-template-checks`, `nuclei` provider):** detection-only nuclei templates
+  (default tags `exposure,misconfig,tech,panel`) against the observed HTTP origins. Opt-in via the existing
+  `ACTIVE_TEMPLATE_CHECK` capability, so policies without it keep their plan. The worker always excludes
+  `dos,fuzz,intrusive,bruteforce,brute-force,default-login,oast,rce,sqli,xss,ssrf,lfi,kev` (a job cannot
+  remove them), disables template updates and the out-of-band service, rate-limits to the policy, discards
+  matches outside scope, redacts and truncates extracted values, and never copies the request or response
+  nuclei emits. Non-INFO matches become `SUSPECTED` findings (CRITICAL is capped at HIGH); INFO matches stay
+  inventory. Flags: `--template-tags`, `--template-providers`. See `docs/architecture/template-checks.md`.
+- **Exposed-service findings:** open ports on a fixed exposure list (databases, Redis, Docker/Kubelet APIs,
+  RDP, SMB, Telnet, …) become `OBSERVED` findings with remediation. A connection was accepted; whether the
+  service is intended to be public is not established.
+- **Risk ranking (`rn risk <scanId>`):** deterministic, explainable per-host score (0-100) from findings,
+  non-web open ports and login interfaces, with per-severity caps so volume cannot outweigh severity.
+  `--top`, `--min-score`, `--level`, `--explain`. A prioritization aid, not a vulnerability rating.
+- **Scan profiles (`scan start --profile quick|standard|deep|stealth`):** chosen at planning time and
+  recorded on the scan. Profiles only tighten the policy (rate, concurrency, crawl depth) and leave out
+  noisy stages rather than skipping them, so a deliberately lighter scan is not reported `PARTIAL`.
+  `deep` widens the crawl budget, port range and template tags. See `docs/architecture/risk-and-profiles.md`.
+
+- **Port scanning and service identification (stage `15-port-scan`, `nmap` provider):** TCP connect scan
+  with light service-version detection of the addresses DNS resolved from in-scope hosts. Opt-in via the
+  new `PORT_SCAN` capability (migration `0006_port_scan.sql`): a policy without it gets no port-scan stage,
+  so existing scans and their status are unchanged. Runs after DNS and before HTTP probing. The worker
+  re-checks every address against scope (restricted address space is denied), uses no NSE scripts, OS
+  detection or raw-packet scans, validates the port list (digits, commas, hyphens; at most 2048 ports), and
+  caps the packet rate at the policy's `requestsPerSecond`. Results are `SERVICE` assets (`ip:port/tcp`)
+  linked to the IP and host, and are listed with `rn ports <scanId>` (`--host`, `--port`, `--service`).
+  New flags: `--ports <spec>`, `--port-providers <list>`. See `docs/architecture/port-scan.md`.
+
 ### Fixed
 
 - **`RECONNEXUS_HMAC_KEY` documentation and diagnostics (P2-3):** documented what the key enables, how

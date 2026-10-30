@@ -68,3 +68,27 @@ describe("discovery result contract", () => {
     expect(DiscoveryJobSchema.safeParse(job).success).toBe(true);
   });
 });
+
+describe("PORT_OBSERVATION / PORT_SCAN contract", () => {
+  const rec = { type: "PORT_OBSERVATION", host: "a.example.com", ip: "93.184.216.34", port: 443, state: "OPEN", provider: "nmap", source: "nmap" };
+
+  it("accepts a port observation and applies defaults", async () => {
+    const { DiscoveryRecordSchema } = await import("@reconnexus/contracts");
+    const parsed = DiscoveryRecordSchema.parse(rec);
+    expect(parsed).toMatchObject({ protocol: "tcp", service: "", tls: false, confidence: 0 });
+  });
+
+  it("rejects out-of-range ports and unknown states", async () => {
+    const { DiscoveryRecordSchema } = await import("@reconnexus/contracts");
+    expect(DiscoveryRecordSchema.safeParse({ ...rec, port: 0 }).success).toBe(false);
+    expect(DiscoveryRecordSchema.safeParse({ ...rec, port: 70000 }).success).toBe(false);
+    expect(DiscoveryRecordSchema.safeParse({ ...rec, state: "CLOSED" }).success).toBe(false);
+  });
+
+  it("only allows digits, commas and hyphens in the port selection", async () => {
+    const { DiscoveryJobSchema } = await import("@reconnexus/contracts");
+    const ports = DiscoveryJobSchema.shape.inputs.shape.ports;
+    expect(ports.safeParse("80,443,8000-8100").success).toBe(true);
+    for (const bad of ["80;id", "-p-", "80,", "a"]) expect(ports.safeParse(bad).success).toBe(false);
+  });
+});

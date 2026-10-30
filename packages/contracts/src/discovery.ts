@@ -14,6 +14,9 @@ export const DiscoveryJobKind = {
   SECRET_SCAN: "SECRET_SCAN",
   TAKEOVER: "TAKEOVER",
   LOGIN_FINDER: "LOGIN_FINDER",
+  PORT_SCAN: "PORT_SCAN",
+  TEMPLATE_CHECK: "TEMPLATE_CHECK",
+  CONTENT_DISCOVERY: "CONTENT_DISCOVERY",
 } as const;
 export type DiscoveryJobKindValue = (typeof DiscoveryJobKind)[keyof typeof DiscoveryJobKind];
 
@@ -29,7 +32,7 @@ export const DiscoveryJobSchema = z.object({
   projectId: z.string().uuid(),
   stage: z.string().min(1),
   jobKey: z.string().min(1),
-  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER"]),
+  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY"]),
   provider: z.string().min(1),
   /** The full policy is passed so the worker can enforce scope independently. */
   policy: ScopePolicySchema,
@@ -61,6 +64,18 @@ export const DiscoveryJobSchema = z.object({
     fetchSourceMaps: z.boolean().optional(),
     /** Eligible artifact URLs to analyse for potential secrets. */
     artifactUrls: z.array(z.string()).optional(),
+    /**
+     * TCP port selection for PORT_SCAN: a comma-separated list of ports and ranges (for example
+     * "80,443,8000-8100"). Omitted means the provider's bounded default list. Digits, commas and
+     * hyphens only, so it can never carry scanner flags.
+     */
+    /**
+     * Template tags to include for TEMPLATE_CHECK (lowercase letters, digits, `_`, `-`, comma
+     * separated). Omitted means the provider's safe default set. The provider always excludes
+     * intrusive, fuzzing, brute-force, default-login and out-of-band tags regardless of this value.
+     */
+    templateTags: z.string().regex(/^[a-z0-9_-]+(,[a-z0-9_-]+)*$/).max(256).optional(),
+    ports: z.string().regex(/^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/).max(512).optional(),
   }),
   limits: LimitsSchema,
   allowRestrictedAddresses: z.boolean().default(false),
@@ -545,6 +560,92 @@ export const LoginInterfaceRecordSchema = z.object({
 });
 export type LoginInterfaceRecord = z.infer<typeof LoginInterfaceRecordSchema>;
 
+export const PortState = z.enum(["OPEN", "FILTERED", "OPEN_FILTERED"]);
+
+/**
+ * A TCP port observed on an address that resolves from an in-scope host. `OPEN` means a connection
+ * was accepted. `product`/`version` come from service-version detection and are claims by the
+ * scanner, not proof of what is running. Closed ports are not recorded, and the absence of a port
+ * is not proof that it is closed.
+ */
+export const PortObservationRecordSchema = z.object({
+  type: z.literal("PORT_OBSERVATION"),
+  /** The in-scope host through which the address was reached. */
+  host: z.string().min(1),
+  ip: z.string().min(1),
+  port: z.number().int().min(1).max(65535),
+  protocol: z.literal("tcp").default("tcp"),
+  state: PortState,
+  /** Service name from the scanner (for example "http", "ssh"); empty when unidentified. */
+  service: z.string().default(""),
+  product: z.string().default(""),
+  version: z.string().default(""),
+  extraInfo: z.string().default(""),
+  /** True when the service is wrapped in TLS. */
+  tls: z.boolean().default(false),
+  /** Scanner confidence in the service identification, 0-1. */
+  confidence: z.number().min(0).max(1).default(0),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type PortObservationRecord = z.infer<typeof PortObservationRecordSchema>;
+
+export const TemplateSeverity = z.enum(["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+
+/**
+ * A template match from a template-based checker (nuclei). The severity is the template author's
+ * rating of the issue *if* it is real; a match is a detection by a signature, not a verified
+ * vulnerability. Request/response bodies are never carried, and extracted values are redacted and
+ * truncated by the worker.
+ */
+export const TemplateFindingRecordSchema = z.object({
+  type: z.literal("TEMPLATE_FINDING"),
+  host: z.string().min(1),
+  /** The URL the template matched at. */
+  url: z.string().min(1),
+  templateId: z.string().min(1),
+  name: z.string().default(""),
+  severity: TemplateSeverity,
+  description: z.string().default(""),
+  tags: z.array(z.string()).default([]),
+  references: z.array(z.string()).default([]),
+  matcherName: z.string().default(""),
+  extracted: z.array(z.string()).default([]),
+  templateType: z.string().default(""),
+  confidence: z.number().min(0).max(1).default(0.7),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type TemplateFindingRecord = z.infer<typeof TemplateFindingRecordSchema>;
+
+export const ContentCategory = z.enum(["VCS", "CONFIG", "BACKUP", "DEBUG", "LOG", "DIRECTORY_LISTING", "METADATA"]);
+
+/**
+ * A path on an in-scope origin that answered differently from a missing path. `CONFIRMED` means the
+ * response carried the path's content marker (or a directory index); `POSSIBLE` means only a
+ * differing response was seen. Severity is the impact *if* the exposure is real. Response bodies are
+ * never carried: evidence names the marker, so an exposed secret file does not leak into the store.
+ */
+export const ContentDiscoveryRecordSchema = z.object({
+  type: z.literal("CONTENT_DISCOVERY"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  path: z.string().min(1),
+  category: ContentCategory,
+  status: z.enum(["CONFIRMED", "POSSIBLE"]),
+  severity: z.enum(["INFO", "LOW", "MEDIUM", "HIGH"]),
+  confidence: z.number().min(0).max(1),
+  httpStatus: z.number().int(),
+  contentLength: z.number().int().nonnegative().default(0),
+  contentType: z.string().default(""),
+  title: z.string().default(""),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type ContentDiscoveryRecord = z.infer<typeof ContentDiscoveryRecordSchema>;
+
 export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   HostObservationRecordSchema,
   DnsRecordSchema,
@@ -561,6 +662,9 @@ export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   SecretScanArtifactSchema,
   TakeoverCandidateRecordSchema,
   LoginInterfaceRecordSchema,
+  PortObservationRecordSchema,
+  TemplateFindingRecordSchema,
+  ContentDiscoveryRecordSchema,
 ]);
 export type DiscoveryRecord = z.infer<typeof DiscoveryRecordSchema>;
 

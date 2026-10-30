@@ -15,6 +15,10 @@ export interface OrchestratorDeps {
   workerId?: string;
   signal?: AbortSignal;
   maxAttempts?: number;
+  /** Port selection for the port-scan stage (e.g. "80,443,8000-8100"); omitted uses the provider default list. */
+  portScanPorts?: string;
+  /** Template tags for the template-check stage; omitted uses the provider's safe default set. */
+  templateTags?: string;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
   /** Report-boundary redactor (defaults to the centralized redactor); injectable for tests. */

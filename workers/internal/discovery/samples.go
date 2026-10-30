@@ -17,6 +17,9 @@ var RecordTypes = []string{
 	TypeSecretScanArtifact,
 	TypeTakeoverCandidate,
 	TypeLoginInterface,
+	TypePortObservation,
+	TypeTemplateFinding,
+	TypeContentDiscovery,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -93,6 +96,17 @@ func SampleRecords() []Record {
 			Kind: LoginKindAdmin, Status: LoginDetected, Confidence: 0.85,
 			FinalURL: "https://app.example.com/admin/login", HTTPStatus: &status, Title: "Admin Login",
 			Evidence: "HTTP 200; password form present; title \"Admin Login\"", EvidenceType: "LOGIN_FORM",
+		}},
+		{Type: TypePortObservation, Host: "app.example.com", IP: "93.184.216.34", Provider: "nmap", Source: "nmap", Port: &PortInfo{
+			Port: 443, Protocol: "tcp", State: "OPEN", Service: "http", Product: "nginx", Version: "1.24.0", TLS: true, Confidence: 0.8,
+		}},
+		{Type: TypeTemplateFinding, Host: "app.example.com", URL: "https://app.example.com/.git/config", Provider: "nuclei", Source: "nuclei", Template: &TemplateInfo{
+			TemplateID: "git-config", Name: "Git Config Exposure", Severity: "MEDIUM", Description: "A git configuration file is publicly readable.",
+			Tags: []string{"exposure", "git"}, References: []string{"https://example.com/ref"}, MatcherName: "", Extracted: []string{}, TemplateType: "http", Confidence: 0.7,
+		}},
+		{Type: TypeContentDiscovery, Host: "app.example.com", URL: "https://app.example.com/.git/HEAD", Provider: "builtin-content", Source: "content-discovery", Content: &ContentInfo{
+			Path: "/.git/HEAD", Category: ContentVCS, Status: ContentConfirmed, Severity: "HIGH", Confidence: 0.9, HTTPStatus: 200,
+			ContentSize: 23, ContentType: "text/plain", Title: "", Evidence: "content marker present: git HEAD reference", EvidenceType: "CONTENT_MARKER",
 		}},
 	}
 }

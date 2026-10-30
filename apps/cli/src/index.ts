@@ -28,6 +28,9 @@ import { correlationsCommand } from "./commands/correlations.js";
 import { reportCommand } from "./commands/report.js";
 import { takeoverCommand } from "./commands/takeover.js";
 import { adminCommand, cpanelCommand } from "./commands/finder.js";
+import { contentCommand } from "./commands/content.js";
+import { portsCommand } from "./commands/ports.js";
+import { riskCommand } from "./commands/risk.js";
 import { changesCommand } from "./commands/changes.js";
 import { findingsCommand } from "./commands/findings.js";
 
@@ -206,11 +209,13 @@ function buildProgram(): Command {
     .option("--workspace <name>", "workspace name", "default")
     .option("--allow-restricted", "allow restricted address space (requires INTERNAL_NETWORK)", false)
     .option("--run", "immediately run the scan after creating it", false)
+    .addOption(new Option("--profile <name>", "scan profile: quick, standard, deep or stealth (never exceeds the policy's limits)").choices(["quick", "standard", "deep", "stealth"]))
     .action((url: string, opts) =>
       run("scan start", program, (ctx) =>
         scanStartCommand(ctx, url, {
           ...(opts.policy ? { policy: opts.policy } : {}),
           ...(opts.workspace ? { workspace: opts.workspace } : {}),
+          ...(opts.profile ? { profile: opts.profile } : {}),
           allowRestricted: opts.allowRestricted === true,
           run: opts.run === true,
         }),
@@ -228,6 +233,11 @@ function buildProgram(): Command {
       .option("--security-providers <list>", "comma-separated security metadata providers")
       .option("--secret-providers <list>", "comma-separated secret-scan providers")
       .option("--login-providers <list>", "comma-separated login/cPanel finder providers")
+      .option("--port-providers <list>", "comma-separated port-scan providers (stage runs only if the policy grants PORT_SCAN)")
+      .option("--template-providers <list>", "comma-separated template-check providers (stage runs only if the policy grants ACTIVE_TEMPLATE_CHECK)")
+      .option("--template-tags <tags>", "template tags to include, e.g. exposure,misconfig (intrusive tags are always excluded)")
+      .option("--content-providers <list>", "comma-separated content-discovery providers (stage runs only if the policy grants CONTENT_DISCOVERY)")
+      .option("--ports <spec>", "TCP ports to scan, e.g. 80,443,8000-8100 (default: a built-in list of common service ports)")
       .option("--max-attempts <n>", "maximum attempts per stage", (v: string) => Number(v));
 
   scanRunOptions(
@@ -245,6 +255,11 @@ function buildProgram(): Command {
         ...(opts.securityProviders ? { securityProviders: opts.securityProviders } : {}),
         ...(opts.secretProviders ? { secretProviders: opts.secretProviders } : {}),
         ...(opts.loginProviders ? { loginProviders: opts.loginProviders } : {}),
+        ...(opts.portProviders ? { portProviders: opts.portProviders } : {}),
+        ...(opts.ports ? { ports: opts.ports } : {}),
+        ...(opts.templateProviders ? { templateProviders: opts.templateProviders } : {}),
+        ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
+        ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -263,6 +278,11 @@ function buildProgram(): Command {
         ...(opts.securityProviders ? { securityProviders: opts.securityProviders } : {}),
         ...(opts.secretProviders ? { secretProviders: opts.secretProviders } : {}),
         ...(opts.loginProviders ? { loginProviders: opts.loginProviders } : {}),
+        ...(opts.portProviders ? { portProviders: opts.portProviders } : {}),
+        ...(opts.ports ? { ports: opts.ports } : {}),
+        ...(opts.templateProviders ? { templateProviders: opts.templateProviders } : {}),
+        ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
+        ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -527,6 +547,63 @@ function buildProgram(): Command {
       }),
     ),
   );
+
+  // Open TCP ports and identified services (port-scan stage; requires the PORT_SCAN capability)
+  program
+    .command("ports <scanId>")
+    .description("list open TCP ports and identified services from the port-scan stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--port <n>", "filter by port number", (v: string) => Number(v))
+    .option("--service <name>", "filter by service name substring")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("ports", program, (ctx) =>
+        portsCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.port !== undefined ? { port: opts.port } : {}),
+          ...(opts.service ? { service: opts.service } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Exposed files, backups, debug endpoints and directory listings (content-discovery stage; requires CONTENT_DISCOVERY)
+  program
+    .command("content <scanId>")
+    .description("list exposed paths found by the content-discovery stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--category <name>", "filter by category (VCS, CONFIG, BACKUP, DEBUG, LOG, DIRECTORY_LISTING, METADATA)")
+    .option("--status <status>", "filter by status (CONFIRMED or POSSIBLE)")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("content", program, (ctx) =>
+        contentCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.category ? { category: opts.category } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // Per-host risk ranking
+  program
+    .command("risk <scanId>")
+    .description("rank hosts by how much attention they deserve (derived from findings, ports and login interfaces)")
+    .option("--top <n>", "show only the n highest-ranked hosts", (v: string) => Number(v))
+    .option("--min-score <n>", "minimum score (0-100)", (v: string) => Number(v))
+    .option("--level <level>", "only hosts at this level (CRITICAL/HIGH/MEDIUM/LOW/MINIMAL)")
+    .option("--explain", "show the factors behind each score", false)
+    .action((id: string, opts) =>
+      run("risk", program, (ctx) =>
+        riskCommand(ctx, id, {
+          ...(opts.top ? { top: opts.top } : {}),
+          ...(opts.minScore !== undefined ? { minScore: opts.minScore } : {}),
+          ...(opts.level ? { level: opts.level } : {}),
+          explain: opts.explain === true,
+        }),
+      ),
+    );
 
   // Scan-to-scan change intelligence
   program

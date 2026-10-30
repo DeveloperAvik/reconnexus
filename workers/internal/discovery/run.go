@@ -3,6 +3,7 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/reconnexus/workers/internal/scope"
@@ -81,6 +82,9 @@ func init() {
 	register(builtinSecretScan{})
 	register(builtinTakeover{})
 	register(builtinLoginFinder{})
+	register(nmapProvider{})
+	register(nucleiProvider{})
+	register(builtinContent{})
 }
 
 // Run executes a discovery job and returns a truthful result. An error is returned only
@@ -313,6 +317,81 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no interface checks performed")
 			return finalizeResult(base), nil
 		}
+	case "CONTENT_DISCOVERY":
+		urls := make([]string, 0, len(job.Inputs.URLs))
+		for _, u := range job.Inputs.URLs {
+			d := engine.Check(scope.Request{Kind: "URL", Value: u, Capability: requiredCapOr(requiredCap, "CONTENT_DISCOVERY")})
+			if d.Allowed {
+				urls = append(urls, u)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.URLs = urls
+		if len(urls) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no content discovery performed")
+			return finalizeResult(base), nil
+		}
+	case "PORT_SCAN":
+		if err := validatePorts(job.Inputs.Ports); err != nil {
+			base.Status = StatusFailed
+			base.Coverage.Attempted = 1
+			base.Coverage.Failed = 1
+			base.Diagnostics = append(base.Diagnostics, "invalid port selection: "+err.Error())
+			return finalizeResult(base), nil
+		}
+		// Each address is checked against the host it was reached through, with the address itself
+		// passed for address-space classification, so a name that resolves to restricted space is
+		// denied here regardless of what the control plane sent.
+		addrs := make([]AddressInput, 0, len(job.Inputs.Addresses))
+		for _, a := range job.Inputs.Addresses {
+			if _, err := netip.ParseAddr(a.IP); err != nil {
+				skipped++
+				continue
+			}
+			d := engine.Check(scope.Request{Kind: "HOST", Value: a.ViaHost, Capability: requiredCapOr(requiredCap, "PORT_SCAN"), ResolvedAddresses: []string{a.IP}})
+			if d.Allowed {
+				addrs = append(addrs, a)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.Addresses = addrs
+		if len(addrs) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all addresses were out of scope; no ports scanned")
+			return finalizeResult(base), nil
+		}
+	case "TEMPLATE_CHECK":
+		if err := validateTemplateTags(job.Inputs.TemplateTags); err != nil {
+			base.Status = StatusFailed
+			base.Coverage.Attempted = 1
+			base.Coverage.Failed = 1
+			base.Diagnostics = append(base.Diagnostics, "invalid template tags: "+err.Error())
+			return finalizeResult(base), nil
+		}
+		urls := make([]string, 0, len(job.Inputs.URLs))
+		for _, u := range job.Inputs.URLs {
+			d := engine.Check(scope.Request{Kind: "URL", Value: u, Capability: requiredCapOr(requiredCap, "ACTIVE_TEMPLATE_CHECK")})
+			if d.Allowed {
+				urls = append(urls, u)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.URLs = urls
+		if len(urls) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all targets were out of scope; no templates run")
+			return finalizeResult(base), nil
+		}
 	case "SECRET_SCAN":
 		arts := make([]string, 0, len(job.Inputs.ArtifactURLs))
 		for _, u := range job.Inputs.ArtifactURLs {
@@ -469,6 +548,12 @@ func unitCount(job Job) int {
 	case "TAKEOVER":
 		return len(job.Inputs.URLs)
 	case "LOGIN_FINDER":
+		return len(job.Inputs.URLs)
+	case "PORT_SCAN":
+		return len(job.Inputs.Addresses)
+	case "TEMPLATE_CHECK":
+		return len(job.Inputs.URLs)
+	case "CONTENT_DISCOVERY":
 		return len(job.Inputs.URLs)
 	}
 	return 1

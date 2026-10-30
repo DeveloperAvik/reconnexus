@@ -44,6 +44,8 @@ type Inputs struct {
 	SpecProbeURLs   []string       `json:"specProbeUrls,omitempty"`
 	FetchSourceMaps bool           `json:"fetchSourceMaps,omitempty"`
 	ArtifactURLs    []string       `json:"artifactUrls,omitempty"`
+	Ports           string         `json:"ports,omitempty"`
+	TemplateTags    string         `json:"templateTags,omitempty"`
 }
 
 type AddressInput struct {
@@ -145,19 +147,70 @@ type Record struct {
 	Takeover *TakeoverInfo `json:"takeover,omitempty"`
 	// LOGIN_INTERFACE
 	Login *LoginInterfaceInfo `json:"login,omitempty"`
+	// PORT_OBSERVATION
+	Port *PortInfo `json:"port,omitempty"`
+	// TEMPLATE_FINDING
+	Template *TemplateInfo `json:"template,omitempty"`
+	// CONTENT_DISCOVERY
+	Content *ContentInfo `json:"content,omitempty"`
+}
+
+// ContentInfo is a path on an in-scope origin that answered differently from a missing path. It
+// records only metadata: the response body is inspected in memory for a marker and never kept.
+type ContentInfo struct {
+	Path         string  `json:"path"`
+	Category     string  `json:"category"`
+	Status       string  `json:"status"`
+	Severity     string  `json:"severity"`
+	Confidence   float64 `json:"confidence"`
+	HTTPStatus   int     `json:"httpStatus"`
+	ContentSize  int     `json:"contentLength"`
+	ContentType  string  `json:"contentType"`
+	Title        string  `json:"title"`
+	Evidence     string  `json:"evidence"`
+	EvidenceType string  `json:"evidenceType"`
+}
+
+// TemplateInfo is a template match from a template-based checker. Severity is the template
+// author's rating if the issue is real; a match is a signature detection, not a verified finding.
+type TemplateInfo struct {
+	TemplateID   string   `json:"templateId"`
+	Name         string   `json:"name"`
+	Severity     string   `json:"severity"`
+	Description  string   `json:"description"`
+	Tags         []string `json:"tags"`
+	References   []string `json:"references"`
+	MatcherName  string   `json:"matcherName"`
+	Extracted    []string `json:"extracted"`
+	TemplateType string   `json:"templateType"`
+	Confidence   float64  `json:"confidence"`
+}
+
+// PortInfo is a TCP port observed on an address that resolves from an in-scope host. Product and
+// version are the scanner's service-detection claims, not verified facts.
+type PortInfo struct {
+	Port       int     `json:"port"`
+	Protocol   string  `json:"protocol"`
+	State      string  `json:"state"`
+	Service    string  `json:"service"`
+	Product    string  `json:"product"`
+	Version    string  `json:"version"`
+	ExtraInfo  string  `json:"extraInfo"`
+	TLS        bool    `json:"tls"`
+	Confidence float64 `json:"confidence"`
 }
 
 // LoginInterfaceInfo is a discovered administrative login or hosting-control-panel interface.
 // It records only what was observed with an unauthenticated GET; no credentials are submitted.
 type LoginInterfaceInfo struct {
-	Kind         string `json:"kind"`
-	Status       string `json:"status"`
+	Kind         string  `json:"kind"`
+	Status       string  `json:"status"`
 	Confidence   float64 `json:"confidence"`
-	FinalURL     string `json:"finalUrl"`
-	HTTPStatus   *int   `json:"httpStatus"`
-	Title        string `json:"title"`
-	Evidence     string `json:"evidence"`
-	EvidenceType string `json:"evidenceType"`
+	FinalURL     string  `json:"finalUrl"`
+	HTTPStatus   *int    `json:"httpStatus"`
+	Title        string  `json:"title"`
+	Evidence     string  `json:"evidence"`
+	EvidenceType string  `json:"evidenceType"`
 }
 
 // TakeoverInfo is a potential subdomain-takeover candidate (never a confirmed takeover).
@@ -361,6 +414,9 @@ const (
 	TypeSecretScanArtifact = "SECRET_SCAN_ARTIFACT"
 	TypeTakeoverCandidate  = "TAKEOVER_CANDIDATE"
 	TypeLoginInterface     = "LOGIN_INTERFACE"
+	TypePortObservation    = "PORT_OBSERVATION"
+	TypeTemplateFinding    = "TEMPLATE_FINDING"
+	TypeContentDiscovery   = "CONTENT_DISCOVERY"
 )
 
 // Login-interface kinds and statuses. DETECTED means a concrete marker was observed; POSSIBLE

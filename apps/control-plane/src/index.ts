@@ -13,3 +13,4 @@ export * from "./reporting/html.js";
 export * from "./comparison/engine.js";
 export * from "./intelligence/index.js";
 
+export * from "./risk/engine.js";

@@ -45,6 +45,10 @@ core.
 | Security metadata: TLS/HSTS/headers/cookies(attrs)/CORS/content-type with status + evidence | ✅ |
 | Secret detection: rules + entropy, redacted-only findings, keyed fingerprints | ✅ |
 | Subdomain-takeover detection: CNAME fingerprints + unclaimed-marker confirmation (candidate-only) | ✅ |
+| Port scanning & service identification (`nmap`, opt-in `PORT_SCAN` capability; `ports`) | ✅ |
+| Template-based checks (`nuclei`, detection-only, opt-in `ACTIVE_TEMPLATE_CHECK`) | ✅ |
+| Content discovery: exposed VCS/env/backup/debug/listing paths, soft-404 calibrated (`builtin-content`, opt-in `CONTENT_DISCOVERY` capability; `content`) | ✅ |
+| Risk ranking per host (`risk`) and scan profiles (`--profile quick/standard/deep/stealth`) | ✅ |
 | Admin login & cPanel finder: read-only fixed-path interface discovery (`admin`, `cpanel`) | ✅ |
 | Evidence correlation: shared secret fingerprints, multi-source corroboration, coverage gaps | ✅ |
 | Reporting: redacted human/json/jsonl/csv with truthful scan-status derivation | ✅ |

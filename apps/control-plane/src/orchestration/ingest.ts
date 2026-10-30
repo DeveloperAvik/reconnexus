@@ -218,13 +218,20 @@ export function reliabilityFor(source: string, score?: number): SourceReliabilit
     case "builtin-api":
     case "security-metadata":
     case "builtin-security-meta":
+    case "port-scan":
+    case "nmap":
       return "HIGH";
+    case "template-check":
+    case "nuclei":
+      return "MEDIUM";
     case "secret-scan":
     case "builtin-secret-scan":
     case "takeover":
     case "builtin-takeover":
     case "login-finder":
     case "builtin-login-finder":
+    case "content-discovery":
+    case "builtin-content":
       return "MEDIUM";
     default:
       return "LOW";
@@ -419,6 +426,76 @@ export async function ingestDiscoveryResult(
         await upsertRelationship(db, { projectId, fromAssetId: urlId, toAssetId: finalId, relation: "redirects_to", confidence: 0.7, source: rec.provider });
         summary.relationships++;
       }
+      return;
+    }
+    if (rec.type === "CONTENT_DISCOVERY") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("content-discovery"), "content-discovery", {
+        host: rec.host,
+        url: rec.url,
+        path: rec.path,
+        category: rec.category,
+        status: rec.status,
+        severity: rec.severity,
+        confidence: rec.confidence,
+        httpStatus: rec.httpStatus,
+        contentLength: rec.contentLength,
+        contentType: rec.contentType,
+        title: rec.title,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
+      await upsertRelationship(db, { projectId, fromAssetId: hostAssetId, toAssetId: urlId, relation: "contains_url", confidence: 0.8, source: rec.provider });
+      summary.relationships++;
+      return;
+    }
+    if (rec.type === "PORT_OBSERVATION") {
+      const ipId = await upsert("IP", rec.ip, rec.ip);
+      const key = `${rec.ip}:${rec.port}/${rec.protocol}`;
+      const serviceId = await upsert("SERVICE", key, key);
+      await recordObservation(serviceId, rec.source || provider, reliabilityFor("port-scan"), "port-observation", {
+        host: rec.host,
+        ip: rec.ip,
+        port: rec.port,
+        protocol: rec.protocol,
+        state: rec.state,
+        service: rec.service,
+        product: rec.product,
+        version: rec.version,
+        extraInfo: rec.extraInfo,
+        tls: rec.tls,
+        confidence: rec.confidence,
+        provider: rec.provider,
+      });
+      await upsertRelationship(db, { projectId, fromAssetId: ipId, toAssetId: serviceId, relation: "exposes_port", confidence: 0.95, source: rec.provider });
+      summary.relationships++;
+      const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
+      await upsertRelationship(db, { projectId, fromAssetId: hostAssetId, toAssetId: serviceId, relation: "exposes_port", confidence: 0.85, source: rec.provider });
+      summary.relationships++;
+      return;
+    }
+    if (rec.type === "TEMPLATE_FINDING") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      await recordObservation(urlId, rec.source || provider, reliabilityFor("template-check"), "template-finding", {
+        host: rec.host,
+        url: rec.url,
+        templateId: rec.templateId,
+        name: rec.name,
+        severity: rec.severity,
+        description: rec.description,
+        tags: rec.tags,
+        references: rec.references,
+        matcherName: rec.matcherName,
+        extracted: rec.extracted,
+        templateType: rec.templateType,
+        confidence: rec.confidence,
+        provider: rec.provider,
+      });
+      const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
+      await upsertRelationship(db, { projectId, fromAssetId: hostAssetId, toAssetId: urlId, relation: "contains_url", confidence: 0.8, source: rec.provider });
+      summary.relationships++;
       return;
     }
     if (rec.type === "SECURITY_METADATA") {

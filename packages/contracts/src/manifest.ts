@@ -20,6 +20,9 @@ export const StageId = {
   // report includes their findings).
   TAKEOVER: "13-subdomain-takeover",
   LOGIN_FINDER: "14-login-finder",
+  PORT_SCAN: "15-port-scan",
+  TEMPLATE_CHECKS: "16-template-checks",
+  CONTENT_DISCOVERY: "17-content-discovery",
 } as const;
 export type StageIdValue = (typeof StageId)[keyof typeof StageId];
 
@@ -28,6 +31,7 @@ export const OrderedStages: StageIdValue[] = [
   StageId.TARGET_INTELLIGENCE,
   StageId.SUBDOMAIN_DISCOVERY,
   StageId.DNS_INFRA,
+  StageId.PORT_SCAN,
   StageId.HTTP_PROBE,
   StageId.URL_COLLECTION,
   StageId.URL_CATEGORIZATION,
@@ -35,9 +39,11 @@ export const OrderedStages: StageIdValue[] = [
   StageId.API_DISCOVERY,
   StageId.SECRET_DETECTION,
   StageId.SECURITY_CHECKS,
+  StageId.TEMPLATE_CHECKS,
   StageId.CORRELATION,
   StageId.TAKEOVER,
   StageId.LOGIN_FINDER,
+  StageId.CONTENT_DISCOVERY,
   StageId.REPORTING,
 ];
 

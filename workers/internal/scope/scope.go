@@ -38,7 +38,7 @@ const CapabilityInternalNetwork = "INTERNAL_NETWORK"
 var AllCapabilities = map[string]bool{
 	"PASSIVE": true, "DNS": true, "ACTIVE_HTTP": true, "CRAWL": true,
 	"JS_ANALYSIS": true, "API_DISCOVERY": true, "SECRET_SCAN": true,
-	"SECURITY_CHECKS": true, "ACTIVE_TEMPLATE_CHECK": true, "TAKEOVER_CHECK": true,
+	"SECURITY_CHECKS": true, "ACTIVE_TEMPLATE_CHECK": true, "TAKEOVER_CHECK": true, "PORT_SCAN": true, "CONTENT_DISCOVERY": true,
 	"INTERNAL_NETWORK": true,
 }
 

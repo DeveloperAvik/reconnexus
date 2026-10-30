@@ -13,6 +13,7 @@ import {
 import { parseUrl, registrableDomain, type NormalizedUrl } from "@reconnexus/normalization";
 import { ScopeEngine } from "@reconnexus/scope-policy";
 import type { Db } from "./db/pool.js";
+import { resolveScanProfile, type ScanProfile } from "./orchestration/profiles.js";
 import { Repository } from "./repository.js";
 
 export class InvalidTargetError extends Error {
@@ -38,6 +39,21 @@ export class PolicyVersionConflictError extends Error {
   }
 }
 
+/**
+ * Stages that exist only when the policy grants the capability they need. A policy that never asked
+ * for one keeps the same plan, and the same truthful scan status, as before the stage existed.
+ */
+const OPT_IN_STAGES: Record<string, string> = {
+  [StageId.PORT_SCAN]: "PORT_SCAN",
+  [StageId.TEMPLATE_CHECKS]: "ACTIVE_TEMPLATE_CHECK",
+  [StageId.CONTENT_DISCOVERY]: "CONTENT_DISCOVERY",
+};
+
+export function plannedStagesFor(capabilities: readonly string[], profile?: ScanProfile | null): string[] {
+  const excluded = new Set(profile?.excludeStages ?? []);
+  return (OrderedStages as string[]).filter((s) => !excluded.has(s) && (!(s in OPT_IN_STAGES) || capabilities.includes(OPT_IN_STAGES[s]!)));
+}
+
 export interface CreateScanRequest {
   startUrl: string;
   policy: ScopePolicy;
@@ -45,6 +61,8 @@ export interface CreateScanRequest {
   configSnapshot?: Record<string, unknown>;
   now?: Date;
   allowRestrictedAddresses?: boolean;
+  /** Scan profile name (quick, standard, deep, stealth); omitted plans every authorized stage. */
+  profile?: string;
 }
 
 export interface CreateScanResult {
@@ -114,6 +132,8 @@ export class ScanService {
     });
     if (!decision.allowed) throw new ScopeDeniedError(decision);
 
+    const profile = req.profile ? resolveScanProfile(req.profile) : null;
+    const plannedStages = plannedStagesFor(req.policy.authorization.capabilities, profile);
     const scanId = randomUUID();
     const manifest: ScanManifest = {
       schemaVersion: SCAN_MANIFEST_SCHEMA_VERSION,
@@ -124,7 +144,7 @@ export class ScanService {
       startUrl: parsed.canonical,
       rootDomain,
       createdAt: now.toISOString(),
-      stages: OrderedStages as string[],
+      stages: plannedStages,
       requestedCapabilities: req.policy.authorization.capabilities,
       enabledProviders: {},
       limits: req.policy.limits,
@@ -152,12 +172,12 @@ export class ScanService {
         policyId,
         startUrl: parsed.canonical,
         rootDomain,
-        configSnapshot: { ...manifest, ...(req.configSnapshot ?? {}) },
+        configSnapshot: { ...manifest, ...(profile ? { scanProfile: profile.name } : {}), ...(req.configSnapshot ?? {}) },
       });
 
-      const stages = (OrderedStages as string[]).map((stage, i) => ({
+      const stages = plannedStages.map((stage, i) => ({
         stage,
-        dependsOn: i === 0 ? [] : [(OrderedStages as string[])[i - 1]!],
+        dependsOn: i === 0 ? [] : [plannedStages[i - 1]!],
       }));
       await repo.createJobs(scan.id, project.id, stages);
       await repo.markJobStatus(scan.id, StageId.INPUT_AUTHORIZATION, "SUCCEEDED");
