@@ -232,7 +232,9 @@ export function reliabilityFor(source: string, score?: number): SourceReliabilit
     case "builtin-login-finder":
     case "content-discovery":
     case "builtin-content":
-      return "MEDIUM";
+    case "cloud-storage":
+    case "builtin-cloud-storage":
+      return "HIGH";
     default:
       return "LOW";
   }
@@ -426,6 +428,29 @@ export async function ingestDiscoveryResult(
         await upsertRelationship(db, { projectId, fromAssetId: urlId, toAssetId: finalId, relation: "redirects_to", confidence: 0.7, source: rec.provider });
         summary.relationships++;
       }
+      return;
+    }
+    if (rec.type === "CLOUD_STORAGE") {
+      const urlId = await upsert("URL", rec.url, rec.url);
+      const bucketKey = `${rec.cloudProvider}:${rec.bucket || rec.host}`;
+      const bucketId = await upsert("CLOUD_BUCKET", bucketKey, bucketKey);
+      await recordObservation(bucketId, rec.source || provider, reliabilityFor("cloud-storage"), "cloud-storage", {
+        host: rec.host,
+        url: rec.url,
+        cloudProvider: rec.cloudProvider,
+        bucket: rec.bucket,
+        origin: rec.origin,
+        status: rec.status,
+        confidence: rec.confidence,
+        httpStatus: rec.httpStatus,
+        objectCount: rec.objectCount,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
+      await upsertRelationship(db, { projectId, fromAssetId: hostAssetId, toAssetId: bucketId, relation: "fronts_bucket", confidence: rec.confidence, source: rec.provider });
+      summary.relationships++;
       return;
     }
     if (rec.type === "CONTENT_DISCOVERY") {

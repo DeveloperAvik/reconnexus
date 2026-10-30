@@ -13,6 +13,7 @@ export const CapabilitySchema = z.enum([
   "TAKEOVER_CHECK",
   "PORT_SCAN",
   "CONTENT_DISCOVERY",
+  "CLOUD_STORAGE_CHECK",
   "INTERNAL_NETWORK",
 ]);
 

@@ -17,6 +17,7 @@ export const DiscoveryJobKind = {
   PORT_SCAN: "PORT_SCAN",
   TEMPLATE_CHECK: "TEMPLATE_CHECK",
   CONTENT_DISCOVERY: "CONTENT_DISCOVERY",
+  CLOUD_STORAGE: "CLOUD_STORAGE",
 } as const;
 export type DiscoveryJobKindValue = (typeof DiscoveryJobKind)[keyof typeof DiscoveryJobKind];
 
@@ -32,7 +33,7 @@ export const DiscoveryJobSchema = z.object({
   projectId: z.string().uuid(),
   stage: z.string().min(1),
   jobKey: z.string().min(1),
-  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY"]),
+  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE"]),
   provider: z.string().min(1),
   /** The full policy is passed so the worker can enforce scope independently. */
   policy: ScopePolicySchema,
@@ -76,6 +77,14 @@ export const DiscoveryJobSchema = z.object({
      */
     templateTags: z.string().regex(/^[a-z0-9_-]+(,[a-z0-9_-]+)*$/).max(256).optional(),
     ports: z.string().regex(/^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$/).max(512).optional(),
+    /**
+     * CLOUD_STORAGE candidates: in-scope hosts whose CNAME the control plane matched against a
+     * known cloud-storage suffix. `url` is always the in-scope host's own origin, never the
+     * bucket's own cloud-provider hostname.
+     */
+    cloudCandidates: z
+      .array(z.object({ url: z.string().min(1), provider: z.enum(["S3", "GCS"]), bucket: z.string().min(1) }))
+      .optional(),
   }),
   limits: LimitsSchema,
   allowRestrictedAddresses: z.boolean().default(false),
@@ -618,6 +627,34 @@ export const TemplateFindingRecordSchema = z.object({
 });
 export type TemplateFindingRecord = z.infer<typeof TemplateFindingRecordSchema>;
 
+export const CloudStorageProvider = z.enum(["S3", "GCS"]);
+
+/**
+ * Whether a CNAME-fronted bucket is publicly listable. `LISTABLE` means the response carried an
+ * actual object listing; `NOT_LISTABLE` means it answered but declined (access denied, or no
+ * bucket by that name — a dangling-CNAME/takeover question, not an exposure); `INCONCLUSIVE` means
+ * the response matched neither. The request target is always the in-scope host itself.
+ */
+export const CloudStorageStatus = z.enum(["LISTABLE", "NOT_LISTABLE", "INCONCLUSIVE"]);
+
+export const CloudStorageRecordSchema = z.object({
+  type: z.literal("CLOUD_STORAGE"),
+  url: z.string().min(1),
+  host: z.string().min(1),
+  cloudProvider: CloudStorageProvider,
+  bucket: z.string().default(""),
+  origin: z.literal("CUSTOM_DOMAIN").default("CUSTOM_DOMAIN"),
+  status: CloudStorageStatus,
+  confidence: z.number().min(0).max(1),
+  httpStatus: z.number().int().nullable().default(null),
+  objectCount: z.number().int().nonnegative().default(0),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type CloudStorageRecord = z.infer<typeof CloudStorageRecordSchema>;
+
 export const ContentCategory = z.enum(["VCS", "CONFIG", "BACKUP", "DEBUG", "LOG", "DIRECTORY_LISTING", "METADATA"]);
 
 /**
@@ -665,6 +702,7 @@ export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   PortObservationRecordSchema,
   TemplateFindingRecordSchema,
   ContentDiscoveryRecordSchema,
+  CloudStorageRecordSchema,
 ]);
 export type DiscoveryRecord = z.infer<typeof DiscoveryRecordSchema>;
 

@@ -85,6 +85,7 @@ func init() {
 	register(nmapProvider{})
 	register(nucleiProvider{})
 	register(builtinContent{})
+	register(builtinCloudStorage{})
 }
 
 // Run executes a discovery job and returns a truthful result. An error is returned only
@@ -315,6 +316,24 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Coverage.Attempted = skipped
 			base.Coverage.Skipped = skipped
 			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no interface checks performed")
+			return finalizeResult(base), nil
+		}
+	case "CLOUD_STORAGE":
+		cands := make([]CloudStorageCandidate, 0, len(job.Inputs.CloudCandidates))
+		for _, c := range job.Inputs.CloudCandidates {
+			d := engine.Check(scope.Request{Kind: "URL", Value: c.URL, Capability: requiredCapOr(requiredCap, "CLOUD_STORAGE_CHECK")})
+			if d.Allowed {
+				cands = append(cands, c)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.CloudCandidates = cands
+		if len(cands) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all candidates were out of scope; no cloud storage checks performed")
 			return finalizeResult(base), nil
 		}
 	case "CONTENT_DISCOVERY":
@@ -555,6 +574,8 @@ func unitCount(job Job) int {
 		return len(job.Inputs.URLs)
 	case "CONTENT_DISCOVERY":
 		return len(job.Inputs.URLs)
+	case "CLOUD_STORAGE":
+		return len(job.Inputs.CloudCandidates)
 	}
 	return 1
 }

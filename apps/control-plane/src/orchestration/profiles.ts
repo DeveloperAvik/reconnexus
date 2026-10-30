@@ -35,7 +35,7 @@ export const SCAN_PROFILES: Record<ScanProfileName, ScanProfile> = {
   quick: {
     name: "quick",
     description: "Fast first pass: no port scan, template checks, login or content discovery; shallow, small crawl.",
-    excludeStages: [StageId.PORT_SCAN, StageId.TEMPLATE_CHECKS, StageId.LOGIN_FINDER, StageId.CONTENT_DISCOVERY],
+    excludeStages: [StageId.PORT_SCAN, StageId.TEMPLATE_CHECKS, StageId.LOGIN_FINDER, StageId.CONTENT_DISCOVERY, StageId.CLOUD_STORAGE],
     maxCrawlDepth: 1,
     crawlRequestBudget: 200,
   },
@@ -56,7 +56,7 @@ export const SCAN_PROFILES: Record<ScanProfileName, ScanProfile> = {
   stealth: {
     name: "stealth",
     description: "Low and slow: at most 2 requests/s and 2 connections, shallow crawl, and no port scan, template checks, login or content discovery.",
-    excludeStages: [StageId.PORT_SCAN, StageId.TEMPLATE_CHECKS, StageId.LOGIN_FINDER, StageId.CONTENT_DISCOVERY],
+    excludeStages: [StageId.PORT_SCAN, StageId.TEMPLATE_CHECKS, StageId.LOGIN_FINDER, StageId.CONTENT_DISCOVERY, StageId.CLOUD_STORAGE],
     maxRequestsPerSecond: 2,
     maxConcurrency: 2,
     maxCrawlDepth: 1,

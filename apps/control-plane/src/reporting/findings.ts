@@ -233,6 +233,53 @@ export function templateFindings(rows: readonly TemplateFindingInput[]): ReportF
   return findings;
 }
 
+export interface CloudStorageFindingInput {
+  url: string;
+  host: string;
+  cloudProvider: string;
+  bucket: string;
+  status: string;
+  confidence: number;
+  httpStatus: number | null;
+  objectCount: number;
+  evidence: string;
+}
+
+/**
+ * Only a LISTABLE bucket becomes a finding: a real connection was made to the in-scope host and
+ * the response carried an actual object listing, not just a status-code guess. NOT_LISTABLE
+ * (access denied, or no bucket by that name) and INCONCLUSIVE stay inventory.
+ */
+export function cloudStorageFindings(rows: readonly CloudStorageFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    if (r.status !== "LISTABLE") continue;
+    const id = findingId(["cloud-storage", r.host, r.bucket]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    findings.push({
+      id,
+      title: `Publicly listable ${r.cloudProvider} bucket "${r.bucket}" behind ${r.host}`,
+      category: "EXPOSED_CLOUD_STORAGE",
+      severity: "HIGH",
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "18-cloud-storage",
+      sourceKind: "cloud-storage",
+      evidence: `HTTP ${r.httpStatus}; ${r.evidence}${r.objectCount > 0 ? ` (${r.objectCount} object(s) listed)` : ""}`,
+      evidenceRefs: [r.url, `bucket:${r.cloudProvider}:${r.bucket}`],
+      remediation: `Disable public listing on the "${r.bucket}" ${r.cloudProvider} bucket (block public ACLs/bucket policy, or an equivalent IAM binding on GCS) and review what it currently exposes. The request reached the bucket through ${r.host}'s own CNAME, confirming it fronts a real target asset.`,
+      references:
+        r.cloudProvider === "S3"
+          ? ["https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"]
+          : ["https://cloud.google.com/storage/docs/access-control/making-data-public"],
+    });
+  }
+  return findings;
+}
+
 export interface ContentFindingInput {
   url: string;
   host: string;
@@ -404,13 +451,14 @@ export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportT
  * of the persisted rows drifting apart.
  */
 export async function loadScanFindings(repo: Repository, scanId: string): Promise<ReportFinding[]> {
-  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows] = await Promise.all([
+  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows] = await Promise.all([
     repo.listSecretFindings(scanId),
     repo.listTakeoverCandidates(scanId),
     repo.listSecurityMetadata(scanId, 5000),
     repo.listTemplateFindings(scanId),
     repo.listPortObservations(scanId),
     repo.listContentDiscoveries(scanId),
+    repo.listCloudStorageFindings(scanId),
   ]);
 
   const secretFindings: ReportSecretFinding[] = secretRows
@@ -482,10 +530,16 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     return { url: r.url, host: d.host ?? "", path: d.path ?? "", category: d.category ?? "", status: d.status ?? "POSSIBLE", severity: d.severity ?? "INFO", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: d.httpStatus ?? 0, evidence: d.evidence ?? "" };
   });
 
+  const cloudInputs: CloudStorageFindingInput[] = cloudRows.map((r) => {
+    const d = r.data as Partial<CloudStorageFindingInput>;
+    return { url: r.url, host: d.host ?? "", cloudProvider: d.cloudProvider ?? "", bucket: d.bucket ?? "", status: d.status ?? "INCONCLUSIVE", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, objectCount: d.objectCount ?? 0, evidence: d.evidence ?? "" };
+  });
+
   return buildFindings(secretFindings, takeoverCandidates, [
     ...insecureCookieFindings(securityFindingInputs),
     ...templateFindings(templateInputs),
     ...contentFindings(contentInputs),
+    ...cloudStorageFindings(cloudInputs),
     ...exposedServiceFindings(portInputs),
   ]);
 }

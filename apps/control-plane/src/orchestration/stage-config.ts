@@ -18,6 +18,7 @@ export const IMPLEMENTED_STAGES = new Set<string>([
   StageId.TAKEOVER,
   StageId.LOGIN_FINDER,
   StageId.CONTENT_DISCOVERY,
+  StageId.CLOUD_STORAGE,
   StageId.REPORTING,
 ]);
 
@@ -36,6 +37,7 @@ export const DEFAULT_PROVIDERS: Record<DiscoveryJobKindValue, string[]> = {
   TAKEOVER: ["builtin-takeover"],
   LOGIN_FINDER: ["builtin-login-finder"],
   CONTENT_DISCOVERY: ["builtin-content"],
+  CLOUD_STORAGE: ["builtin-cloud-storage"],
 };
 
 export const MAX_NAMES = 1000;
@@ -59,6 +61,32 @@ export const MAX_TAKEOVER_HOSTS = 300;
 export const MAX_LOGIN_ORIGINS = 25;
 /** Origins that may be probed with the content-discovery path list (about 90 requests each). */
 export const MAX_CONTENT_ORIGINS = 25;
+/** CNAME-derived candidates the cloud-storage stage may check in one scan. */
+export const MAX_CLOUD_STORAGE_CANDIDATES = 25;
+
+/**
+ * Derives a best-effort bucket name from a CNAME target that fronts a cloud storage bucket on a
+ * custom domain. Only REST-style S3 endpoints are matched (never `s3-website-*`, which answers a
+ * plain GET with the site's own public content, not a listing, and is never a finding here).
+ *
+ * A leading label before `.s3` is the (legacy) per-bucket virtual-host pattern, so that label is
+ * the bucket name. Otherwise (a bare CNAME to the shared S3 or GCS endpoint) the bucket name must
+ * equal the custom domain itself: both providers require that for a bare CNAME to route at all.
+ */
+export function cloudStorageCandidateFor(host: string, cnameTarget: string): { provider: "S3" | "GCS"; bucket: string } | null {
+  const target = cnameTarget.toLowerCase().replace(/\.$/, "");
+  if (target.endsWith(".amazonaws.com") && !target.includes("website")) {
+    const vhost = target.match(/^([a-z0-9.-]+)\.s3[.-]/);
+    if (vhost?.[1]) return { provider: "S3", bucket: vhost[1] };
+    if (/^s3[.-]/.test(target)) return { provider: "S3", bucket: host };
+    return null;
+  }
+  if (target === "storage.googleapis.com" || target === "c.storage.googleapis.com") {
+    return { provider: "GCS", bucket: host };
+  }
+  return null;
+}
+
 export const MAX_FINGERPRINT_GROUP = 10;
 export const MAX_CORR_EDGES = 500;
 

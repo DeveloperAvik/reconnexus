@@ -41,6 +41,7 @@ emitted by `reconnexus providers matrix` (`--json` for scripting).
 | `builtin-security-meta` | 10 | SECURITY_CHECKS | ACTIVE | TLS/HSTS/headers/cookie attributes/CORS/content-type. |
 | `builtin-takeover` | 13 | TAKEOVER_CHECK | ACTIVE | CNAME fingerprints + one bounded GET per host; candidate-only. |
 | `builtin-content` | 17 | CONTENT_DISCOVERY | ACTIVE | ~90 fixed sensitive paths per origin, soft-404 calibrated; bodies never stored. |
+| `builtin-cloud-storage` | 18 | CLOUD_STORAGE_CHECK | ACTIVE | One GET per CNAME-derived candidate, always to the in-scope host itself. |
 | `builtin-login-finder` | 14 | ACTIVE_HTTP | ACTIVE | Fixed admin-login and cPanel/WHM/webmail path/port probes; read-only. |
 | `offline-ipmeta`, `mock`, `mock-url` | — | — | NONE | Deterministic test fixtures. |
 

@@ -22,7 +22,7 @@ import { applyProfileLimits, profileFromSnapshot, type ScanProfile } from "./pro
 import { dependenciesSatisfied, deriveScanStatus } from "./scan-status.js";
 import { NON_RETRYABLE_SETTLED, aggregate, coverageStatusFor, countRecordsByType, fingerprintCorrelationStatus, isRetryableProviderOutcome, shouldRetryStage } from "./outcome-policy.js";
 import type { OrchestratorDeps, OrchestratorEvent, ProviderOutcomeSummary, ScanRunSummary } from "./types.js";
-import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PORT_SCAN_ADDRESSES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, defaultSleep, looksLikeJs, looksLikeSpec, originOfUrl, sorted } from "./stage-config.js";
+import { DEFAULT_PROVIDERS, IMPLEMENTED_STAGES, MAX_ADDRESSES, MAX_CORR_ASSETS, MAX_CLOUD_STORAGE_CANDIDATES, MAX_CONTENT_ORIGINS, MAX_CORR_EDGES, MAX_CRAWL_REQUESTS, MAX_FINGERPRINT_GROUP, MAX_HTTP_HOSTS, MAX_HTTP_TARGETS, MAX_JS_URLS, MAX_LOGIN_ORIGINS, MAX_NAMES, MAX_PORT_SCAN_ADDRESSES, MAX_SECRET_ARTIFACTS, MAX_SECURITY_TARGETS, MAX_SEED_URLS, MAX_SPEC_PROBE_ORIGINS, MAX_SPEC_PROBE_URLS, MAX_SPEC_URLS, MAX_TAKEOVER_HOSTS, MAX_TEMPLATE_TARGETS, cloudStorageCandidateFor, defaultSleep, looksLikeJs, looksLikeSpec, originOfUrl, sorted } from "./stage-config.js";
 
 /**
  * ScanOrchestrator executes the implemented Phase 2 stages. It persists results through the
@@ -295,6 +295,8 @@ export class ScanOrchestrator {
         return this.runTemplateChecks(scan, job, policy);
       case StageId.CONTENT_DISCOVERY:
         return this.runContentDiscovery(scan, job, policy);
+      case StageId.CLOUD_STORAGE:
+        return this.runCloudStorage(scan, job, policy);
       case StageId.CORRELATION:
         return this.runCorrelation(scan, job);
       case StageId.REPORTING:
@@ -671,6 +673,43 @@ export class ScanOrchestrator {
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes, { targets: urls.length });
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 18 — cloud storage exposure. Checks whether a bucket fronted by a CNAME on an in-scope
+   * host is publicly listable. Candidates are derived here, from DNS CNAME records of in-scope
+   * hosts already collected, matched against known cloud-storage CNAME suffixes; the worker never
+   * requests a bucket's own cloud-provider hostname, only the in-scope host itself. Exists only
+   * when the policy grants CLOUD_STORAGE_CHECK.
+   */
+  private async runCloudStorage(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    if (!policy.authorization.capabilities.includes("CLOUD_STORAGE_CHECK")) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "CLOUD_STORAGE_CHECK capability is not authorized by the policy" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "CLOUD_STORAGE_CHECK not authorized" };
+    }
+    const dnsRows = await this.repo.listDnsObservations(scan.id);
+    const seen = new Set<string>();
+    const candidates: Array<{ url: string; provider: "S3" | "GCS"; bucket: string }> = [];
+    for (const r of dnsRows) {
+      if (r.record_type !== "CNAME" || !r.value) continue;
+      if (r.name !== scan.root_domain && !r.name.endsWith(`.${scan.root_domain}`)) continue;
+      const derived = cloudStorageCandidateFor(r.name, r.value);
+      if (!derived || seen.has(r.name)) continue;
+      seen.add(r.name);
+      candidates.push({ url: `https://${r.name}/`, provider: derived.provider, bucket: derived.bucket });
+      if (candidates.length >= MAX_CLOUD_STORAGE_CANDIDATES) break;
+    }
+    if (candidates.length === 0) {
+      await this.deps.db.withTransaction((c) => upsertCoverageInternal(c, { scanId: scan.id, projectId: scan.project_id, stage: job.stage, status: "NOT_ATTEMPTED", expected: 0, collected: 0, notes: "no in-scope host CNAMEs to a known cloud storage endpoint" }));
+      return { status: JobStatus.SKIPPED, providers: [], reason: "no candidates" };
+    }
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.CLOUD_STORAGE)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.CLOUD_STORAGE, provider, inputs: { cloudCandidates: candidates } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes, { candidates: candidates.length });
     return { status, providers: outcomes };
   }
 

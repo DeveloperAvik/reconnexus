@@ -47,6 +47,9 @@ func (r *Record) flatPayloads() []any {
 	if r.Content != nil {
 		out = append(out, r.Content)
 	}
+	if r.CloudStorage != nil {
+		out = append(out, r.CloudStorage)
+	}
 	return out
 }
 
@@ -71,6 +74,7 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	base.Port = nil
 	base.Template = nil
 	base.Content = nil
+	base.CloudStorage = nil
 
 	baseBytes, err := json.Marshal(recordEnvelope(base))
 	if err != nil {

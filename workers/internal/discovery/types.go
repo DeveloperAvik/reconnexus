@@ -31,21 +31,31 @@ type Job struct {
 }
 
 type Inputs struct {
-	RootDomain      string         `json:"rootDomain,omitempty"`
-	Names           []string       `json:"names,omitempty"`
-	Addresses       []AddressInput `json:"addresses,omitempty"`
-	URLs            []string       `json:"urls,omitempty"`
-	SeedURLs        []string       `json:"seedUrls,omitempty"`
-	Domains         []string       `json:"domains,omitempty"`
-	CrawlDepth      int            `json:"crawlDepth,omitempty"`
-	RequestBudget   int            `json:"requestBudget,omitempty"`
-	JSURLs          []string       `json:"jsUrls,omitempty"`
-	SpecURLs        []string       `json:"specUrls,omitempty"`
-	SpecProbeURLs   []string       `json:"specProbeUrls,omitempty"`
-	FetchSourceMaps bool           `json:"fetchSourceMaps,omitempty"`
-	ArtifactURLs    []string       `json:"artifactUrls,omitempty"`
-	Ports           string         `json:"ports,omitempty"`
-	TemplateTags    string         `json:"templateTags,omitempty"`
+	RootDomain      string                  `json:"rootDomain,omitempty"`
+	Names           []string                `json:"names,omitempty"`
+	Addresses       []AddressInput          `json:"addresses,omitempty"`
+	URLs            []string                `json:"urls,omitempty"`
+	SeedURLs        []string                `json:"seedUrls,omitempty"`
+	Domains         []string                `json:"domains,omitempty"`
+	CrawlDepth      int                     `json:"crawlDepth,omitempty"`
+	RequestBudget   int                     `json:"requestBudget,omitempty"`
+	JSURLs          []string                `json:"jsUrls,omitempty"`
+	SpecURLs        []string                `json:"specUrls,omitempty"`
+	SpecProbeURLs   []string                `json:"specProbeUrls,omitempty"`
+	FetchSourceMaps bool                    `json:"fetchSourceMaps,omitempty"`
+	ArtifactURLs    []string                `json:"artifactUrls,omitempty"`
+	Ports           string                  `json:"ports,omitempty"`
+	TemplateTags    string                  `json:"templateTags,omitempty"`
+	CloudCandidates []CloudStorageCandidate `json:"cloudCandidates,omitempty"`
+}
+
+// CloudStorageCandidate is an in-scope host whose CNAME the control plane matched against a
+// known cloud-storage suffix. URL is always the in-scope host's own origin; Bucket is the
+// control plane's best-effort name derived from the CNAME target.
+type CloudStorageCandidate struct {
+	URL      string `json:"url"`
+	Provider string `json:"provider"`
+	Bucket   string `json:"bucket"`
 }
 
 type AddressInput struct {
@@ -153,6 +163,23 @@ type Record struct {
 	Template *TemplateInfo `json:"template,omitempty"`
 	// CONTENT_DISCOVERY
 	Content *ContentInfo `json:"content,omitempty"`
+	// CLOUD_STORAGE
+	CloudStorage *CloudStorageInfo `json:"cloudStorage,omitempty"`
+}
+
+// CloudStorageInfo is the result of checking whether a CNAME-fronted bucket is publicly
+// listable. Origin is always CUSTOM_DOMAIN: the request target was the in-scope host, never the
+// bucket's own cloud-provider hostname.
+type CloudStorageInfo struct {
+	CloudProvider string  `json:"cloudProvider"`
+	Bucket        string  `json:"bucket"`
+	Origin        string  `json:"origin"`
+	Status        string  `json:"status"`
+	Confidence    float64 `json:"confidence"`
+	HTTPStatus    *int    `json:"httpStatus"`
+	ObjectCount   int     `json:"objectCount"`
+	Evidence      string  `json:"evidence"`
+	EvidenceType  string  `json:"evidenceType"`
 }
 
 // ContentInfo is a path on an in-scope origin that answered differently from a missing path. It
@@ -417,6 +444,7 @@ const (
 	TypePortObservation    = "PORT_OBSERVATION"
 	TypeTemplateFinding    = "TEMPLATE_FINDING"
 	TypeContentDiscovery   = "CONTENT_DISCOVERY"
+	TypeCloudStorage       = "CLOUD_STORAGE"
 )
 
 // Login-interface kinds and statuses. DETECTED means a concrete marker was observed; POSSIBLE

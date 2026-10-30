@@ -8,6 +8,22 @@ planned functionality; entries only describe what is actually implemented and te
 
 ### Added
 
+- **Cloud storage exposure (stage `18-cloud-storage`, `builtin-cloud-storage` provider):** checks
+  whether an Amazon S3 or Google Cloud Storage bucket fronted by a CNAME on an in-scope host is
+  publicly listable. Candidates are derived from DNS CNAME records of in-scope hosts already
+  collected, matched against known cloud-storage CNAME suffixes (REST-style S3 endpoints and GCS's
+  shared endpoint; `s3-website-*` is excluded, since that serves the site's own intended public
+  content, not a listing). Opt-in via the new `CLOUD_STORAGE_CHECK` capability (migration `0008`),
+  so existing policies keep their plan; the `quick` and `stealth` profiles leave it out. The request
+  target is always the in-scope host's own hostname, over HTTPS then HTTP — **never the bucket's own
+  cloud-provider hostname**: the worker's scope engine only ever authorizes hosts a policy explicitly
+  lists, with no capability-based bypass, so a bucket referenced only by a third-party hostname (for
+  example one found in a JS bundle but never added to scope) is not checked by this stage. A hit is
+  `LISTABLE` only when the response carries an actual `<ListBucketResult>` object listing; access-
+  denied and no-such-bucket responses (a takeover question, not an exposure) stay inventory as
+  `NOT_LISTABLE`/`INCONCLUSIVE`. `LISTABLE` becomes a `SUSPECTED` `HIGH` `EXPOSED_CLOUD_STORAGE`
+  finding. New `buckets` command and `--cloud-storage-providers`. See
+  `docs/architecture/cloud-storage.md`.
 - **Content discovery (stage `17-content-discovery`, `builtin-content` provider):** read-only probing of a
   fixed list of ~90 high-signal paths (VCS metadata, `.env`/config files, backups and SQL dumps, debug and
   management endpoints, logs, directory listings) on the observed HTTP origins. Opt-in via the new

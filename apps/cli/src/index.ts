@@ -28,6 +28,7 @@ import { correlationsCommand } from "./commands/correlations.js";
 import { reportCommand } from "./commands/report.js";
 import { takeoverCommand } from "./commands/takeover.js";
 import { adminCommand, cpanelCommand } from "./commands/finder.js";
+import { bucketsCommand } from "./commands/buckets.js";
 import { contentCommand } from "./commands/content.js";
 import { portsCommand } from "./commands/ports.js";
 import { riskCommand } from "./commands/risk.js";
@@ -236,6 +237,7 @@ function buildProgram(): Command {
       .option("--port-providers <list>", "comma-separated port-scan providers (stage runs only if the policy grants PORT_SCAN)")
       .option("--template-providers <list>", "comma-separated template-check providers (stage runs only if the policy grants ACTIVE_TEMPLATE_CHECK)")
       .option("--template-tags <tags>", "template tags to include, e.g. exposure,misconfig (intrusive tags are always excluded)")
+      .option("--cloud-storage-providers <list>", "comma-separated cloud-storage providers (stage runs only if the policy grants CLOUD_STORAGE_CHECK)")
       .option("--content-providers <list>", "comma-separated content-discovery providers (stage runs only if the policy grants CONTENT_DISCOVERY)")
       .option("--ports <spec>", "TCP ports to scan, e.g. 80,443,8000-8100 (default: a built-in list of common service ports)")
       .option("--max-attempts <n>", "maximum attempts per stage", (v: string) => Number(v));
@@ -260,6 +262,7 @@ function buildProgram(): Command {
         ...(opts.templateProviders ? { templateProviders: opts.templateProviders } : {}),
         ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
         ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
+        ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -283,6 +286,7 @@ function buildProgram(): Command {
         ...(opts.templateProviders ? { templateProviders: opts.templateProviders } : {}),
         ...(opts.templateTags ? { templateTags: opts.templateTags } : {}),
         ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
+        ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -562,6 +566,23 @@ function buildProgram(): Command {
           ...(opts.host ? { host: opts.host } : {}),
           ...(opts.port !== undefined ? { port: opts.port } : {}),
           ...(opts.service ? { service: opts.service } : {}),
+          ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // CNAME-fronted cloud storage buckets (cloud-storage stage; requires CLOUD_STORAGE_CHECK)
+  program
+    .command("buckets <scanId>")
+    .description("list cloud storage buckets found by the cloud-storage stage")
+    .option("--host <substr>", "filter by host substring")
+    .option("--status <status>", "filter by status (LISTABLE, NOT_LISTABLE, INCONCLUSIVE)")
+    .option("--limit <n>", "maximum rows to show", (v: string) => Number(v))
+    .action((id: string, opts) =>
+      run("buckets", program, (ctx) =>
+        bucketsCommand(ctx, id, {
+          ...(opts.host ? { host: opts.host } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
           ...(opts.limit ? { limit: opts.limit } : {}),
         }),
       ),

@@ -123,6 +123,7 @@ export interface ScanRunOptions {
   templateProviders?: string;
   templateTags?: string;
   contentProviders?: string;
+  cloudStorageProviders?: string;
   ports?: string;
   maxAttempts?: number;
 }
@@ -158,6 +159,7 @@ function buildOrchestrator(
   if (opts.portProviders) overrides.PORT_SCAN = splitList(opts.portProviders);
   if (opts.templateProviders) overrides.TEMPLATE_CHECK = splitList(opts.templateProviders);
   if (opts.contentProviders) overrides.CONTENT_DISCOVERY = splitList(opts.contentProviders);
+  if (opts.cloudStorageProviders) overrides.CLOUD_STORAGE = splitList(opts.cloudStorageProviders);
   return new ScanOrchestrator({
     db,
     runner,

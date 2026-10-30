@@ -20,6 +20,7 @@ var RecordTypes = []string{
 	TypePortObservation,
 	TypeTemplateFinding,
 	TypeContentDiscovery,
+	TypeCloudStorage,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -107,6 +108,10 @@ func SampleRecords() []Record {
 		{Type: TypeContentDiscovery, Host: "app.example.com", URL: "https://app.example.com/.git/HEAD", Provider: "builtin-content", Source: "content-discovery", Content: &ContentInfo{
 			Path: "/.git/HEAD", Category: ContentVCS, Status: ContentConfirmed, Severity: "HIGH", Confidence: 0.9, HTTPStatus: 200,
 			ContentSize: 23, ContentType: "text/plain", Title: "", Evidence: "content marker present: git HEAD reference", EvidenceType: "CONTENT_MARKER",
+		}},
+		{Type: TypeCloudStorage, Host: "static.example.com", URL: "https://static.example.com/", Provider: "builtin-cloud-storage", Source: "cloud-storage", CloudStorage: &CloudStorageInfo{
+			CloudProvider: CloudProviderS3, Bucket: "static.example.com", Origin: "CUSTOM_DOMAIN", Status: CloudStorageListable, Confidence: 0.9,
+			HTTPStatus: &status, ObjectCount: 42, Evidence: "HTTP 200 with a <ListBucketResult> object listing", EvidenceType: "LIST_BUCKET_RESULT",
 		}},
 	}
 }

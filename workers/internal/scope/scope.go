@@ -38,7 +38,7 @@ const CapabilityInternalNetwork = "INTERNAL_NETWORK"
 var AllCapabilities = map[string]bool{
 	"PASSIVE": true, "DNS": true, "ACTIVE_HTTP": true, "CRAWL": true,
 	"JS_ANALYSIS": true, "API_DISCOVERY": true, "SECRET_SCAN": true,
-	"SECURITY_CHECKS": true, "ACTIVE_TEMPLATE_CHECK": true, "TAKEOVER_CHECK": true, "PORT_SCAN": true, "CONTENT_DISCOVERY": true,
+	"SECURITY_CHECKS": true, "ACTIVE_TEMPLATE_CHECK": true, "TAKEOVER_CHECK": true, "PORT_SCAN": true, "CONTENT_DISCOVERY": true, "CLOUD_STORAGE_CHECK": true,
 	"INTERNAL_NETWORK": true,
 }
 
@@ -146,9 +146,9 @@ type Engine struct {
 func NewEngine(p *Policy) *Engine { return &Engine{Policy: p} }
 
 type target struct {
-	host string
-	ip   netip.Addr
-	path string
+	host  string
+	ip    netip.Addr
+	path  string
 	hasIP bool
 }
 

@@ -47,6 +47,7 @@ core.
 | Subdomain-takeover detection: CNAME fingerprints + unclaimed-marker confirmation (candidate-only) | ✅ |
 | Port scanning & service identification (`nmap`, opt-in `PORT_SCAN` capability; `ports`) | ✅ |
 | Template-based checks (`nuclei`, detection-only, opt-in `ACTIVE_TEMPLATE_CHECK`) | ✅ |
+| Cloud storage exposure: CNAME-fronted S3/GCS bucket listability (`builtin-cloud-storage`, opt-in `CLOUD_STORAGE_CHECK` capability; `buckets`) | ✅ |
 | Content discovery: exposed VCS/env/backup/debug/listing paths, soft-404 calibrated (`builtin-content`, opt-in `CONTENT_DISCOVERY` capability; `content`) | ✅ |
 | Risk ranking per host (`risk`) and scan profiles (`--profile quick/standard/deep/stealth`) | ✅ |
 | Admin login & cPanel finder: read-only fixed-path interface discovery (`admin`, `cpanel`) | ✅ |
