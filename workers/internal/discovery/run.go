@@ -87,6 +87,7 @@ func init() {
 	register(builtinContent{})
 	register(builtinCloudStorage{})
 	register(builtinCorsRedirect{})
+	register(builtinEmailSecurity{})
 }
 
 // Run executes a discovery job and returns a truthful result. An error is returned only
@@ -355,6 +356,24 @@ func Run(ctx context.Context, job Job, logger *telemetry.Logger) (Result, error)
 			base.Diagnostics = append(base.Diagnostics, "all origins were out of scope; no content discovery performed")
 			return finalizeResult(base), nil
 		}
+	case "EMAIL_SECURITY":
+		names := make([]string, 0, len(job.Inputs.Names))
+		for _, n := range job.Inputs.Names {
+			d := engine.Check(scope.Request{Kind: "HOST", Value: n, Capability: filterCap})
+			if d.Allowed {
+				names = append(names, n)
+			} else {
+				skipped++
+			}
+		}
+		job.Inputs.Names = names
+		if len(names) == 0 {
+			base.Status = StatusSkipped
+			base.Coverage.Attempted = skipped
+			base.Coverage.Skipped = skipped
+			base.Diagnostics = append(base.Diagnostics, "all domains were out of scope; no email security checks performed")
+			return finalizeResult(base), nil
+		}
 	case "CORS_REDIRECT":
 		urls := make([]string, 0, len(job.Inputs.URLs))
 		for _, u := range job.Inputs.URLs {
@@ -607,6 +626,8 @@ func unitCount(job Job) int {
 		return len(job.Inputs.CloudCandidates)
 	case "CORS_REDIRECT":
 		return len(job.Inputs.URLs) + len(job.Inputs.RedirectCandidates)
+	case "EMAIL_SECURITY":
+		return len(job.Inputs.Names)
 	}
 	return 1
 }

@@ -19,6 +19,7 @@ export const DiscoveryJobKind = {
   CONTENT_DISCOVERY: "CONTENT_DISCOVERY",
   CLOUD_STORAGE: "CLOUD_STORAGE",
   CORS_REDIRECT: "CORS_REDIRECT",
+  EMAIL_SECURITY: "EMAIL_SECURITY",
 } as const;
 export type DiscoveryJobKindValue = (typeof DiscoveryJobKind)[keyof typeof DiscoveryJobKind];
 
@@ -34,7 +35,7 @@ export const DiscoveryJobSchema = z.object({
   projectId: z.string().uuid(),
   stage: z.string().min(1),
   jobKey: z.string().min(1),
-  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE", "CORS_REDIRECT"]),
+  kind: z.enum(["SUBDOMAINS", "DNS", "IP_METADATA", "HTTP_PROBE", "URL_COLLECTION", "JS_ANALYSIS", "API_SPEC", "SECURITY_META", "SECRET_SCAN", "TAKEOVER", "LOGIN_FINDER", "PORT_SCAN", "TEMPLATE_CHECK", "CONTENT_DISCOVERY", "CLOUD_STORAGE", "CORS_REDIRECT", "EMAIL_SECURITY"]),
   provider: z.string().min(1),
   /** The full policy is passed so the worker can enforce scope independently. */
   policy: ScopePolicySchema,
@@ -740,6 +741,34 @@ export const OpenRedirectRecordSchema = z.object({
 });
 export type OpenRedirectRecord = z.infer<typeof OpenRedirectRecordSchema>;
 
+export const EmailSecurityCategory = z.enum(["SPF", "DMARC", "DKIM"]);
+
+/**
+ * Shared across SPF/DMARC/DKIM; interpretation depends on category. For SPF/DMARC: `ABSENT` means
+ * no record found; `WEAK` means present but not enforcing (SPF `~all`/`?all`/no `all`, or DMARC
+ * `p=none`); `STRONG` means present and enforcing (SPF `-all`, DMARC `p=quarantine`/`p=reject`);
+ * `MISCONFIGURED` means malformed or multiple conflicting records (including SPF `+all`, which
+ * explicitly permits any sender). For DKIM: `DETECTED` means a key record was found at one of a
+ * fixed list of common selectors; `NOT_DETECTED` means none were — this is never proof DKIM is
+ * absent, only that the domain doesn't use one of the probed selectors.
+ */
+export const EmailSecurityStatus = z.enum(["STRONG", "WEAK", "ABSENT", "MISCONFIGURED", "DETECTED", "NOT_DETECTED"]);
+
+export const EmailSecurityRecordSchema = z.object({
+  type: z.literal("EMAIL_SECURITY"),
+  host: z.string().min(1),
+  category: EmailSecurityCategory,
+  status: EmailSecurityStatus,
+  confidence: z.number().min(0).max(1),
+  value: z.string().default(""),
+  detail: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])).default({}),
+  evidence: z.string().default(""),
+  evidenceType: z.string().default(""),
+  provider: z.string().min(1),
+  source: z.string().min(1),
+});
+export type EmailSecurityRecord = z.infer<typeof EmailSecurityRecordSchema>;
+
 export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   HostObservationRecordSchema,
   DnsRecordSchema,
@@ -762,6 +791,7 @@ export const DiscoveryRecordSchema = z.discriminatedUnion("type", [
   CloudStorageRecordSchema,
   CorsMisconfigurationRecordSchema,
   OpenRedirectRecordSchema,
+  EmailSecurityRecordSchema,
 ]);
 export type DiscoveryRecord = z.infer<typeof DiscoveryRecordSchema>;
 

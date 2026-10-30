@@ -640,6 +640,18 @@ export class Repository {
     return res.rows as never;
   }
 
+  async listEmailSecurityFindings(scanId: string, limit = 20000): Promise<Array<{ host: string; data: Record<string, unknown> }>> {
+    const res = await this.db.query(
+      `SELECT a.value AS host, o.data AS data
+         FROM observations o JOIN assets a ON a.id = o.asset_id
+        WHERE o.scan_id = $1 AND o.kind = 'email-security'
+        ORDER BY (o.data->>'category'), a.value
+        LIMIT $2`,
+      [scanId, limit],
+    );
+    return res.rows as never;
+  }
+
   async listPortObservations(scanId: string): Promise<Array<{ data: Record<string, unknown> }>> {
     const res = await this.db.query(
       `SELECT o.data AS data

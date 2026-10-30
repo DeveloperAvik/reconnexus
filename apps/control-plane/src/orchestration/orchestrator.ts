@@ -299,6 +299,8 @@ export class ScanOrchestrator {
         return this.runCloudStorage(scan, job, policy);
       case StageId.CORS_REDIRECT:
         return this.runCorsRedirect(scan, job, policy);
+      case StageId.EMAIL_SECURITY:
+        return this.runEmailSecurity(scan, job, policy);
       case StageId.CORRELATION:
         return this.runCorrelation(scan, job);
       case StageId.REPORTING:
@@ -759,6 +761,23 @@ export class ScanOrchestrator {
     }
     const status = aggregate(outcomes.map((o) => o.outcome));
     await this.writeStageCoverage(scan, job, status, outcomes, { corsTargets: corsTargets.length, redirectCandidates: redirectCandidates.length });
+    return { status, providers: outcomes };
+  }
+
+  /**
+   * Stage 20 — email security posture. Checks the scan's root domain for SPF, DMARC and a fixed
+   * list of common DKIM selectors. All of it is read-only DNS TXT/MX lookups against the domain
+   * itself — no connection to a mail server, and no capability gate beyond the baseline DNS
+   * capability every scan already requires, so this always runs (like DNS infrastructure
+   * collection) rather than being opt-in.
+   */
+  private async runEmailSecurity(scan: ScanRow, job: JobRow, policy: ScopePolicy): Promise<{ status: string; providers: ProviderOutcomeSummary[]; reason?: string }> {
+    const outcomes: ProviderOutcomeSummary[] = [];
+    for (const provider of this.providersFor(DiscoveryJobKind.EMAIL_SECURITY)) {
+      outcomes.push(await this.runProvider({ scan, job, policy, kind: DiscoveryJobKind.EMAIL_SECURITY, provider, inputs: { names: [scan.root_domain] } }));
+    }
+    const status = aggregate(outcomes.map((o) => o.outcome));
+    await this.writeStageCoverage(scan, job, status, outcomes);
     return { status, providers: outcomes };
   }
 

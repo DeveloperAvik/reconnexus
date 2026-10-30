@@ -125,6 +125,7 @@ export interface ScanRunOptions {
   contentProviders?: string;
   cloudStorageProviders?: string;
   corsRedirectProviders?: string;
+  emailProviders?: string;
   ports?: string;
   maxAttempts?: number;
 }
@@ -162,6 +163,7 @@ function buildOrchestrator(
   if (opts.contentProviders) overrides.CONTENT_DISCOVERY = splitList(opts.contentProviders);
   if (opts.cloudStorageProviders) overrides.CLOUD_STORAGE = splitList(opts.cloudStorageProviders);
   if (opts.corsRedirectProviders) overrides.CORS_REDIRECT = splitList(opts.corsRedirectProviders);
+  if (opts.emailProviders) overrides.EMAIL_SECURITY = splitList(opts.emailProviders);
   return new ScanOrchestrator({
     db,
     runner,

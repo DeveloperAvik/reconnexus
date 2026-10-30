@@ -30,6 +30,7 @@ import { takeoverCommand } from "./commands/takeover.js";
 import { adminCommand, cpanelCommand } from "./commands/finder.js";
 import { bucketsCommand } from "./commands/buckets.js";
 import { corsCommand } from "./commands/cors.js";
+import { emailCommand } from "./commands/email.js";
 import { redirectsCommand } from "./commands/redirects.js";
 import { contentCommand } from "./commands/content.js";
 import { portsCommand } from "./commands/ports.js";
@@ -242,6 +243,7 @@ function buildProgram(): Command {
       .option("--cloud-storage-providers <list>", "comma-separated cloud-storage providers (stage runs only if the policy grants CLOUD_STORAGE_CHECK)")
       .option("--content-providers <list>", "comma-separated content-discovery providers (stage runs only if the policy grants CONTENT_DISCOVERY)")
       .option("--cors-redirect-providers <list>", "comma-separated CORS/open-redirect providers (stage runs only if the policy grants CORS_REDIRECT_CHECK)")
+      .option("--email-providers <list>", "comma-separated email-security providers")
       .option("--ports <spec>", "TCP ports to scan, e.g. 80,443,8000-8100 (default: a built-in list of common service ports)")
       .option("--max-attempts <n>", "maximum attempts per stage", (v: string) => Number(v));
 
@@ -267,6 +269,7 @@ function buildProgram(): Command {
         ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
         ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
         ...(opts.corsRedirectProviders ? { corsRedirectProviders: opts.corsRedirectProviders } : {}),
+        ...(opts.emailProviders ? { emailProviders: opts.emailProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -292,6 +295,7 @@ function buildProgram(): Command {
         ...(opts.contentProviders ? { contentProviders: opts.contentProviders } : {}),
         ...(opts.cloudStorageProviders ? { cloudStorageProviders: opts.cloudStorageProviders } : {}),
         ...(opts.corsRedirectProviders ? { corsRedirectProviders: opts.corsRedirectProviders } : {}),
+        ...(opts.emailProviders ? { emailProviders: opts.emailProviders } : {}),
         ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}),
       }),
     ),
@@ -642,6 +646,21 @@ function buildProgram(): Command {
           ...(opts.host ? { host: opts.host } : {}),
           ...(opts.status ? { status: opts.status } : {}),
           ...(opts.limit ? { limit: opts.limit } : {}),
+        }),
+      ),
+    );
+
+  // SPF/DMARC/DKIM posture (email-security stage)
+  program
+    .command("email <scanId>")
+    .description("list SPF/DMARC/DKIM observations found by the email-security stage")
+    .option("--category <category>", "filter by category (SPF, DMARC, DKIM)")
+    .option("--status <status>", "filter by status (STRONG, WEAK, ABSENT, MISCONFIGURED, DETECTED, NOT_DETECTED)")
+    .action((id: string, opts) =>
+      run("email", program, (ctx) =>
+        emailCommand(ctx, id, {
+          ...(opts.category ? { category: opts.category } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
         }),
       ),
     );

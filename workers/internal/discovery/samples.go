@@ -23,6 +23,7 @@ var RecordTypes = []string{
 	TypeCloudStorage,
 	TypeCorsMisconfig,
 	TypeOpenRedirect,
+	TypeEmailSecurity,
 }
 
 // SampleRecords returns one representative record per record type. It is the input to the
@@ -124,6 +125,11 @@ func SampleRecords() []Record {
 			TestedURL: "https://app.example.com/login?next=https%3A%2F%2Fredirect-canary.reconnexus.invalid%2F", Parameter: "next", Status: RedirectConfirmed, Confidence: 0.9,
 			HTTPStatus: &status, Location: "https://redirect-canary.reconnexus.invalid/",
 			Evidence: "redirected to the injected externally-controlled value", EvidenceType: "REDIRECTED_TO_CANARY",
+		}},
+		{Type: TypeEmailSecurity, Host: "example.com", Provider: "builtin-email-security", Source: "email-security", EmailSecurity: &EmailSecurityInfo{
+			Category: EmailCategoryDMARC, Status: EmailSecurityWeak, Confidence: 0.8, Value: "v=DMARC1; p=none; pct=100; rua=mailto:dmarc@example.com",
+			Detail:   map[string]any{"hasMx": true, "policy": "none", "pct": "100"},
+			Evidence: "DMARC policy is p=none (monitoring only; failing mail is not rejected or quarantined)", EvidenceType: "MONITOR_ONLY",
 		}},
 	}
 }

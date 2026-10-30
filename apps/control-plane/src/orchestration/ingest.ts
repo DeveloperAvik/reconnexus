@@ -236,6 +236,8 @@ export function reliabilityFor(source: string, score?: number): SourceReliabilit
     case "builtin-cloud-storage":
     case "cors-redirect":
     case "builtin-cors-redirect":
+    case "email-security":
+    case "builtin-email-security":
       return "HIGH";
     default:
       return "LOW";
@@ -506,6 +508,21 @@ export async function ingestDiscoveryResult(
         confidence: rec.confidence,
         httpStatus: rec.httpStatus,
         location: rec.location,
+        evidence: rec.evidence,
+        evidenceType: rec.evidenceType,
+        provider: rec.provider,
+      });
+      return;
+    }
+    if (rec.type === "EMAIL_SECURITY") {
+      const hostAssetId = await upsert(hostType(rec.host), rec.host, rec.host);
+      await recordObservation(hostAssetId, rec.source || provider, reliabilityFor("email-security"), "email-security", {
+        host: rec.host,
+        category: rec.category,
+        status: rec.status,
+        confidence: rec.confidence,
+        value: rec.value,
+        detail: rec.detail,
         evidence: rec.evidence,
         evidenceType: rec.evidenceType,
         provider: rec.provider,

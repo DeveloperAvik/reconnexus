@@ -20,6 +20,7 @@ export const IMPLEMENTED_STAGES = new Set<string>([
   StageId.CONTENT_DISCOVERY,
   StageId.CLOUD_STORAGE,
   StageId.CORS_REDIRECT,
+  StageId.EMAIL_SECURITY,
   StageId.REPORTING,
 ]);
 
@@ -40,6 +41,7 @@ export const DEFAULT_PROVIDERS: Record<DiscoveryJobKindValue, string[]> = {
   CONTENT_DISCOVERY: ["builtin-content"],
   CLOUD_STORAGE: ["builtin-cloud-storage"],
   CORS_REDIRECT: ["builtin-cors-redirect"],
+  EMAIL_SECURITY: ["builtin-email-security"],
 };
 
 export const MAX_NAMES = 1000;

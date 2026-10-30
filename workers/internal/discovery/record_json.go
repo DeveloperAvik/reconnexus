@@ -56,6 +56,9 @@ func (r *Record) flatPayloads() []any {
 	if r.OpenRedirect != nil {
 		out = append(out, r.OpenRedirect)
 	}
+	if r.EmailSecurity != nil {
+		out = append(out, r.EmailSecurity)
+	}
 	return out
 }
 
@@ -83,6 +86,7 @@ func (r Record) MarshalJSON() ([]byte, error) {
 	base.CloudStorage = nil
 	base.Cors = nil
 	base.OpenRedirect = nil
+	base.EmailSecurity = nil
 
 	baseBytes, err := json.Marshal(recordEnvelope(base))
 	if err != nil {
@@ -179,6 +183,9 @@ func (r *Record) normalize() {
 	}
 	if r.Security != nil && r.Security.Detail == nil {
 		r.Security.Detail = map[string]any{}
+	}
+	if r.EmailSecurity != nil && r.EmailSecurity.Detail == nil {
+		r.EmailSecurity.Detail = map[string]any{}
 	}
 }
 

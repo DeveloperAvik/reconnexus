@@ -370,6 +370,54 @@ export function openRedirectFindings(rows: readonly OpenRedirectFindingInput[]):
   return findings;
 }
 
+export interface EmailSecurityFindingInput {
+  host: string;
+  category: string;
+  status: string;
+  confidence: number;
+  value: string;
+  evidence: string;
+}
+
+const EMAIL_SECURITY_REMEDIATION: Record<string, string> = {
+  SPF: "Publish a single SPF TXT record ending in '-all' that lists every legitimate sending source; avoid '+all' or a missing 'all' mechanism, which leave the policy effectively open.",
+  DMARC: "Publish a DMARC TXT record at _dmarc.<domain> with p=quarantine or p=reject once SPF/DKIM alignment is confirmed; p=none only monitors and does not stop spoofed mail from being delivered.",
+};
+
+/**
+ * Only SPF/DMARC `ABSENT`, `WEAK` and `MISCONFIGURED` become findings — a domain's email can be
+ * spoofed more easily without an enforced policy. DKIM's `NOT_DETECTED` never becomes a finding:
+ * it only means none of a fixed, common selector list resolved, which is not evidence DKIM is
+ * absent. `STRONG` and `DETECTED` stay inventory (good posture, not an issue to report).
+ */
+export function emailSecurityFindings(rows: readonly EmailSecurityFindingInput[]): ReportFinding[] {
+  const seen = new Set<string>();
+  const findings: ReportFinding[] = [];
+  for (const r of rows) {
+    if (r.category === "DKIM" || r.status === "STRONG" || r.status === "DETECTED") continue;
+    const id = findingId(["email-security", r.host, r.category]);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const severity = r.status === "MISCONFIGURED" ? "MEDIUM" : r.category === "DMARC" ? "MEDIUM" : "LOW";
+    findings.push({
+      id,
+      title: `${r.category} ${r.status === "ABSENT" ? "is missing" : "is weak"} for ${r.host}`,
+      category: "EMAIL_SECURITY_WEAKNESS",
+      severity,
+      confidence: r.confidence,
+      validation: "SUSPECTED",
+      subject: r.host,
+      sourceStage: "20-email-security",
+      sourceKind: "email-security",
+      evidence: r.evidence + (r.value ? ` (record: ${r.value})` : ""),
+      evidenceRefs: [r.host],
+      remediation: EMAIL_SECURITY_REMEDIATION[r.category] ?? "Review the domain's email authentication configuration.",
+      references: ["https://datatracker.ietf.org/doc/html/rfc7208", "https://datatracker.ietf.org/doc/html/rfc7489"],
+    });
+  }
+  return findings;
+}
+
 export interface ContentFindingInput {
   url: string;
   host: string;
@@ -541,7 +589,7 @@ export function buildFindings(secrets: ReportSecretFinding[], takeovers: ReportT
  * of the persisted rows drifting apart.
  */
 export async function loadScanFindings(repo: Repository, scanId: string): Promise<ReportFinding[]> {
-  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows, corsRows, redirectRows] = await Promise.all([
+  const [secretRows, takeoverRows, securityMetaRows, templateRows, portRows, contentRows, cloudRows, corsRows, redirectRows, emailRows] = await Promise.all([
     repo.listSecretFindings(scanId),
     repo.listTakeoverCandidates(scanId),
     repo.listSecurityMetadata(scanId, 5000),
@@ -551,6 +599,7 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     repo.listCloudStorageFindings(scanId),
     repo.listCorsFindings(scanId),
     repo.listOpenRedirectFindings(scanId),
+    repo.listEmailSecurityFindings(scanId),
   ]);
 
   const secretFindings: ReportSecretFinding[] = secretRows
@@ -637,6 +686,11 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     return { url: r.url, testedUrl: d.testedUrl ?? "", host: d.host ?? "", parameter: d.parameter ?? "", status: d.status ?? "NOT_VULNERABLE", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, httpStatus: typeof d.httpStatus === "number" ? d.httpStatus : null, location: d.location ?? "", evidence: d.evidence ?? "" };
   });
 
+  const emailInputs: EmailSecurityFindingInput[] = emailRows.map((r) => {
+    const d = r.data as Partial<EmailSecurityFindingInput>;
+    return { host: r.host, category: d.category ?? "", status: d.status ?? "ABSENT", confidence: typeof d.confidence === "number" ? d.confidence : 0.3, value: d.value ?? "", evidence: d.evidence ?? "" };
+  });
+
   return buildFindings(secretFindings, takeoverCandidates, [
     ...insecureCookieFindings(securityFindingInputs),
     ...templateFindings(templateInputs),
@@ -644,6 +698,7 @@ export async function loadScanFindings(repo: Repository, scanId: string): Promis
     ...cloudStorageFindings(cloudInputs),
     ...corsFindings(corsInputs),
     ...openRedirectFindings(redirectInputs),
+    ...emailSecurityFindings(emailInputs),
     ...exposedServiceFindings(portInputs),
   ]);
 }

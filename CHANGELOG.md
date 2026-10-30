@@ -8,6 +8,18 @@ planned functionality; entries only describe what is actually implemented and te
 
 ### Added
 
+- **Email security posture (stage `20-email-security`, `builtin-email-security` provider):**
+  checks the scan's root domain for SPF, DMARC, and a fixed list of common DKIM selectors, via
+  read-only DNS TXT/MX lookups — never a connection to a mail server. Runs under the baseline
+  `DNS` capability every scan already requires, so it is not opt-in and is not excluded from the
+  `quick`/`stealth` profiles, same as core DNS infrastructure collection. SPF: `ABSENT` (no
+  record), `MISCONFIGURED` (multiple records, or a permissive `+all`), `STRONG` (`-all`), `WEAK`
+  (`~all`/`?all`/no `all` mechanism). DMARC: `ABSENT`, `MISCONFIGURED` (multiple records or a
+  missing/unrecognized policy tag), `STRONG` (`p=quarantine`/`p=reject`), `WEAK` (`p=none`). DKIM:
+  `DETECTED` at one of a fixed selector list, or `NOT_DETECTED` — explicitly never treated as
+  proof DKIM is absent, and never a finding. SPF/DMARC `ABSENT`/`WEAK`/`MISCONFIGURED` become
+  `EMAIL_SECURITY_WEAKNESS` findings (`MEDIUM` for DMARC/misconfigurations, `LOW` for SPF).
+  New `email` command and `--email-providers`. See `docs/architecture/email-security.md`.
 - **CORS misconfiguration and open-redirect probes (stage `19-cors-redirect`,
   `builtin-cors-redirect` provider):** two independent, read-only active checks. CORS reflection
   sends a crafted, arbitrary `Origin` header (a reserved, non-resolvable `.invalid` domain) to

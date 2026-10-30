@@ -25,6 +25,7 @@ export const StageId = {
   CONTENT_DISCOVERY: "17-content-discovery",
   CLOUD_STORAGE: "18-cloud-storage",
   CORS_REDIRECT: "19-cors-redirect",
+  EMAIL_SECURITY: "20-email-security",
 } as const;
 export type StageIdValue = (typeof StageId)[keyof typeof StageId];
 
@@ -48,6 +49,7 @@ export const OrderedStages: StageIdValue[] = [
   StageId.CONTENT_DISCOVERY,
   StageId.CLOUD_STORAGE,
   StageId.CORS_REDIRECT,
+  StageId.EMAIL_SECURITY,
   StageId.REPORTING,
 ];
 

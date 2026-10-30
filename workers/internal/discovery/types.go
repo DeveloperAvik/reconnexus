@@ -178,6 +178,21 @@ type Record struct {
 	Cors *CorsInfo `json:"cors,omitempty"`
 	// OPEN_REDIRECT
 	OpenRedirect *OpenRedirectInfo `json:"openRedirect,omitempty"`
+	// EMAIL_SECURITY
+	EmailSecurity *EmailSecurityInfo `json:"emailSecurity,omitempty"`
+}
+
+// EmailSecurityInfo is a single SPF, DMARC or DKIM observation for a domain. Status semantics
+// depend on Category: see packages/contracts/src/discovery.ts for the documented mapping. DKIM's
+// NOT_DETECTED is never proof DKIM is absent — only that none of a fixed selector list resolved.
+type EmailSecurityInfo struct {
+	Category     string         `json:"category"`
+	Status       string         `json:"status"`
+	Confidence   float64        `json:"confidence"`
+	Value        string         `json:"value"`
+	Detail       map[string]any `json:"detail"`
+	Evidence     string         `json:"evidence"`
+	EvidenceType string         `json:"evidenceType"`
 }
 
 // CorsInfo is the result of probing an in-scope origin with a crafted, arbitrary Origin header.
@@ -489,6 +504,7 @@ const (
 	TypeCloudStorage       = "CLOUD_STORAGE"
 	TypeCorsMisconfig      = "CORS_MISCONFIGURATION"
 	TypeOpenRedirect       = "OPEN_REDIRECT"
+	TypeEmailSecurity      = "EMAIL_SECURITY"
 )
 
 // Login-interface kinds and statuses. DETECTED means a concrete marker was observed; POSSIBLE
